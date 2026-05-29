@@ -8,7 +8,7 @@
 // PANEL_[RGB]0 ... color channel for top half
 // PANEL_[RGB]1 ... color channel for bottom half
 // taken from http://svn.clifford.at/handicraft/2015/c3demo/fpga/ledpanel.v
-// modified by Lucy in 2020, Manawyrm & tsys in 2023
+// modified by Lucy in 2020, Manawyrm & tsys in 2023, Nick in 2026
 
 `default_nettype none
 module ledpanel (
