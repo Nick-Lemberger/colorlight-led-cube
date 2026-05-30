@@ -5,12 +5,12 @@ module udp_panel_writer
 		input  wire          udp0_source_valid,
 		input  wire          udp0_source_last,
 		output wire          udp0_source_ready,
-		input  wire    [7:0] udp0_source_data,
+		input  wire [7:0]    udp0_source_data,
 		input  wire          udp0_source_error,
-		output reg [7:0]     ctrl_en,
+		output reg  [7:0]    ctrl_en,
 		output wire [3:0]    ctrl_wr,
-		output reg [15:0]    ctrl_addr,
-		output reg [23:0]    ctrl_wdat,
+		output reg  [15:0]   ctrl_addr,
+		output reg  [23:0]   ctrl_wdat,
 
 		output reg led_reg
 );
@@ -56,6 +56,7 @@ module udp_panel_writer
 						addr_y[7:0] = udp0_source_data;
 						udp_state   = STATE_READ_DATA;
 						byte_count  = 0;
+						addr_x = 0;
 					end
 				end
 				STATE_READ_DATA : begin
