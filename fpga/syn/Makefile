@@ -31,11 +31,12 @@ flash.svf : top.bit
 	./bit_to_flash.py top.bit flash.svf
 
 
-prog : top.svf
-	openocd -f openocd.cfg -c "transport select jtag; init; scan_chain; svf top.svf; shutdown; quit"
+prog : top.bit
+	#openocd -f openocd.cfg -c "transport select jtag; init; scan_chain; svf top.svf; shutdown; quit"
+	openFPGALoader -c dirtyJtag top.bit 
 
-flash : flash.svf
-	openocd -f openocd.cfg -c "transport select jtag; init; scan_chain; svf flash.svf; shutdown; quit"
+#flash : flash.bit
+#	openocd -f openocd.cfg -c "transport select jtag; init; scan_chain; svf flash.svf; shutdown; quit"
 
 clean:
 	rm -f ../liteeth_core.*

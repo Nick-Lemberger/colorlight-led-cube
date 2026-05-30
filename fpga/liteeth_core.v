@@ -7,9 +7,11 @@
 //                   https://github.com/enjoy-digital/litex
 //
 // Filename   : liteeth_core.v
+// Top        : UDPCore
 // Device     : 
-// LiteX sha1 : cb85a8ca
-// Date       : 2023-01-21 21:44:02
+// Hierarchy  : disabled
+// LiteX sha1 : 4149fb257
+// Date       : 2026-05-30 13:07:48
 //------------------------------------------------------------------------------
 
 `timescale 1ns / 1ps
@@ -19,676 +21,301 @@
 //------------------------------------------------------------------------------
 
 module liteeth_core (
+    input  wire          rgmii_clocks_rx,
+    output wire          rgmii_clocks_tx,
+    input  wire          rgmii_int_n,
+    output wire          rgmii_mdc,
+    inout  wire          rgmii_mdio,
+    output wire          rgmii_rst_n,
+    input  wire          rgmii_rx_ctl,
+    input  wire    [3:0] rgmii_rx_data,
+    output wire          rgmii_tx_ctl,
+    output wire    [3:0] rgmii_tx_data,
     input  wire          sys_clock,
     input  wire          sys_reset,
-    output wire          rgmii_eth_clocks_tx,
-    input  wire          rgmii_eth_clocks_rx,
-    output wire          rgmii_eth_rst_n,
-    input  wire          rgmii_eth_int_n,
-    inout  wire          rgmii_eth_mdio,
-    output wire          rgmii_eth_mdc,
-    input  wire          rgmii_eth_rx_ctl,
-    input  wire    [3:0] rgmii_eth_rx_data,
-    output wire          rgmii_eth_tx_ctl,
-    output wire    [3:0] rgmii_eth_tx_data,
-    input  wire          udp0_sink_valid,
+    input  wire   [31:0] udp0_ip_address,
+    input  wire    [7:0] udp0_sink_data,
     input  wire          udp0_sink_last,
     output wire          udp0_sink_ready,
-    input  wire    [7:0] udp0_sink_data,
-    output wire          udp0_source_valid,
+    input  wire          udp0_sink_valid,
+    output wire    [7:0] udp0_source_data,
+    output wire          udp0_source_error,
     output wire          udp0_source_last,
     input  wire          udp0_source_ready,
-    output wire    [7:0] udp0_source_data,
-    output wire          udp0_source_error
+    output wire          udp0_source_valid,
+    input  wire   [15:0] udp0_udp_port
 );
 
+
+//------------------------------------------------------------------------------
+// Hierarchy
+//------------------------------------------------------------------------------
+
+/*
+UDPCore
+├── bus (SoCBusHandler)
+├── csr (SoCCSRHandler)
+├── irq (SoCIRQHandler)
+├── ctrl (SoCController)
+├── cpu (CPUNone)
+├── crg (CRG)
+├── ethphy (LiteEthPHYRGMII)
+│    ├── crg (LiteEthPHYRGMIICRG)
+│    │    └── [BB:DELAYG]
+│    ├── tx (LiteEthPHYRGMIITX)
+│    │    ├── [BB:DELAYG]
+│    │    ├── [BB:DELAYG]
+│    │    ├── [BB:DELAYG]
+│    │    ├── [BB:DELAYG]
+│    │    └── [BB:DELAYG]
+│    ├── rx (LiteEthPHYRGMIIRX)
+│    │    ├── [BB:DELAYG]
+│    │    ├── [BB:DELAYG]
+│    │    ├── [BB:DELAYG]
+│    │    ├── [BB:DELAYG]
+│    │    └── [BB:DELAYG]
+│    └── mdio (LiteEthPHYMDIO)
+├── core (LiteEthUDPIPCore)
+│    ├── mac (LiteEthMAC)
+│    │    ├── core (LiteEthMACCore)
+│    │    │    ├── tx_datapath (TXDatapath)
+│    │    │    │    ├── clockdomaincrossing_0 (ClockDomainCrossing) [Gen]
+│    │    │    │    │    └── asyncfifo_0 (AsyncFIFO) [Gen]
+│    │    │    │    │         └── fifo (AsyncFIFO)
+│    │    │    │    │              ├── graycounter_0 (GrayCounter) [Gen]
+│    │    │    │    │              └── graycounter_1 (GrayCounter) [Gen]
+│    │    │    │    ├── liteethmacpaddinginserter_0 (LiteEthMACPaddingInserter) [Gen]
+│    │    │    │    │    └── fsm (FSM)
+│    │    │    │    ├── liteethmaccrc32inserter_0 (LiteEthMACCRC32Inserter) [Gen]
+│    │    │    │    │    ├── crc (LiteEthMACCRC32)
+│    │    │    │    │    │    └── liteethmaccrcengine_0 (LiteEthMACCRCEngine) [Gen]
+│    │    │    │    │    ├── fsm (FSM)
+│    │    │    │    │    └── buffer_0 (Buffer) [Gen]
+│    │    │    │    │         ├── pipe_valid (PipeValid)
+│    │    │    │    │         └── pipeline (Pipeline)
+│    │    │    │    ├── liteethmacpreambleinserter_0 (LiteEthMACPreambleInserter) [Gen]
+│    │    │    │    │    └── fsm (FSM)
+│    │    │    │    ├── liteethmacgap_0 (LiteEthMACGap) [Gen]
+│    │    │    │    │    └── fsm (FSM)
+│    │    │    │    └── pipeline_0 (Pipeline) [Gen]
+│    │    │    └── rx_datapath (RXDatapath)
+│    │    │         ├── liteethmacpreamblechecker_0 (LiteEthMACPreambleChecker) [Gen]
+│    │    │         │    └── fsm (FSM)
+│    │    │         ├── pulsesynchronizer_0 (PulseSynchronizer) [Gen]
+│    │    │         ├── liteethmaccrc32checker_0 (LiteEthMACCRC32Checker) [Gen]
+│    │    │         │    ├── crc (LiteEthMACCRC32Check)
+│    │    │         │    │    └── engine (LiteEthMACCRCEngine)
+│    │    │         │    ├── fifo (SyncFIFO)
+│    │    │         │    │    └── fifo (SyncFIFO)
+│    │    │         │    ├── fsm (FSM)
+│    │    │         │    └── buffer_0 (Buffer) [Gen]
+│    │    │         │         ├── pipe_valid (PipeValid)
+│    │    │         │         └── pipeline (Pipeline)
+│    │    │         ├── pulsesynchronizer_1 (PulseSynchronizer) [Gen]
+│    │    │         ├── liteethmacpaddingchecker_0 (LiteEthMACPaddingChecker) [Gen]
+│    │    │         ├── clockdomaincrossing_0 (ClockDomainCrossing) [Gen]
+│    │    │         │    └── asyncfifo_0 (AsyncFIFO) [Gen]
+│    │    │         │         └── fifo (AsyncFIFO)
+│    │    │         │              ├── graycounter_0 (GrayCounter) [Gen]
+│    │    │         │              └── graycounter_1 (GrayCounter) [Gen]
+│    │    │         └── pipeline_0 (Pipeline) [Gen]
+│    │    ├── crossbar (LiteEthMACCrossbar)
+│    │    │    ├── arbiter (Arbiter)
+│    │    │    │    ├── rr (RoundRobin)
+│    │    │    │    ├── status_0 (Status) [Gen]
+│    │    │    │    └── status_1 (Status) [Gen]
+│    │    │    └── dispatcher (Dispatcher)
+│    │    │         └── status_0 (Status) [Gen]
+│    │    ├── packetizer (LiteEthMACPacketizer)
+│    │    │    ├── fsm (FSM)
+│    │    │    └── last_be_fsm (FSM)
+│    │    └── depacketizer (LiteEthMACDepacketizer)
+│    │         ├── fsm (FSM)
+│    │         └── last_be_fsm (FSM)
+│    ├── arp (LiteEthARP)
+│    │    ├── tx (LiteEthARPTX)
+│    │    │    ├── packetizer (LiteEthARPPacketizer)
+│    │    │    │    ├── fsm (FSM)
+│    │    │    │    └── last_be_fsm (FSM)
+│    │    │    └── fsm (FSM)
+│    │    ├── rx (LiteEthARPRX)
+│    │    │    ├── depacketizer (LiteEthARPDepacketizer)
+│    │    │    │    ├── fsm (FSM)
+│    │    │    │    └── last_be_fsm (FSM)
+│    │    │    └── fsm (FSM)
+│    │    └── table (LiteEthARPTable)
+│    │         ├── request_timer (WaitTimer)
+│    │         ├── cache (LiteEthARPCache)
+│    │         │    ├── clear_timer (WaitTimer)
+│    │         │    └── fsm (FSM)
+│    │         └── fsm (FSM)
+│    ├── ip (LiteEthIP)
+│    │    ├── tx (LiteEthIPTX)
+│    │    │    ├── buffer (Buffer)
+│    │    │    │    ├── pipe_valid (PipeValid)
+│    │    │    │    └── pipeline (Pipeline)
+│    │    │    ├── checksum (LiteEthIPV4Checksum)
+│    │    │    ├── packetizer (LiteEthIPV4Packetizer)
+│    │    │    │    ├── fsm (FSM)
+│    │    │    │    └── last_be_fsm (FSM)
+│    │    │    └── fsm (FSM)
+│    │    ├── rx (LiteEthIPRX)
+│    │    │    ├── depacketizer (LiteEthIPV4Depacketizer)
+│    │    │    │    ├── fsm (FSM)
+│    │    │    │    └── last_be_fsm (FSM)
+│    │    │    ├── checksum (LiteEthIPV4Checksum)
+│    │    │    └── fsm (FSM)
+│    │    └── crossbar (LiteEthIPV4Crossbar)
+│    │         ├── arbiter (Arbiter)
+│    │         │    ├── rr (RoundRobin)
+│    │         │    ├── status_0 (Status) [Gen]
+│    │         │    └── status_1 (Status) [Gen]
+│    │         └── dispatcher (Dispatcher)
+│    │              └── status_0 (Status) [Gen]
+│    ├── icmp (LiteEthICMP)
+│    │    ├── tx (LiteEthICMPTX)
+│    │    │    ├── packetizer (LiteEthICMPPacketizer)
+│    │    │    │    ├── fsm (FSM)
+│    │    │    │    └── last_be_fsm (FSM)
+│    │    │    └── fsm (FSM)
+│    │    ├── rx (LiteEthICMPRX)
+│    │    │    ├── depacketizer (LiteEthICMPDepacketizer)
+│    │    │    │    ├── fsm (FSM)
+│    │    │    │    └── last_be_fsm (FSM)
+│    │    │    └── fsm (FSM)
+│    │    └── echo (LiteEthICMPEcho)
+│    │         └── buffer (PacketFIFO)
+│    │              ├── payload_fifo (SyncFIFO)
+│    │              │    └── fifo (SyncFIFOBuffered)
+│    │              │         └── fifo (SyncFIFO)
+│    │              └── param_fifo (SyncFIFO)
+│    │                   └── fifo (SyncFIFOBuffered)
+│    │                        └── fifo (SyncFIFO)
+│    └── udp (LiteEthUDP)
+│         ├── tx (LiteEthUDPTX)
+│         │    ├── packetizer (LiteEthUDPPacketizer)
+│         │    │    ├── fsm (FSM)
+│         │    │    └── last_be_fsm (FSM)
+│         │    └── fsm (FSM)
+│         ├── rx (LiteEthUDPRX)
+│         │    ├── depacketizer (LiteEthUDPDepacketizer)
+│         │    │    ├── fsm (FSM)
+│         │    │    └── last_be_fsm (FSM)
+│         │    └── fsm (FSM)
+│         └── crossbar (LiteEthUDPCrossbar)
+│              ├── tx_cdc (ClockDomainCrossing)
+│              ├── tx_converter (StrideConverter)
+│              │    └── converter_0 (Converter) [Gen]
+│              │         └── _identityconverter_0 (_IdentityConverter) [Gen]
+│              ├── rx_converter (StrideConverter)
+│              │    └── converter_0 (Converter) [Gen]
+│              │         └── _identityconverter_0 (_IdentityConverter) [Gen]
+│              ├── rx_cdc (ClockDomainCrossing)
+│              ├── arbiter (Arbiter)
+│              └── dispatcher (Dispatcher)
+│                   └── status_0 (Status) [Gen]
+├── liteethudpstreamer_0 (LiteEthUDPStreamer) [Gen]
+│    ├── tx (LiteEthStream2UDPTX)
+│    │    ├── fifo (SyncFIFO)
+│    │    │    └── fifo (SyncFIFOBuffered)
+│    │    │         └── fifo (SyncFIFO)
+│    │    └── fsm (FSM)
+│    └── rx (LiteEthUDP2StreamRX)
+│         └── fifo (SyncFIFO)
+│              └── fifo (SyncFIFOBuffered)
+│                   └── fifo (SyncFIFO)
+├── csr_bridge (Wishbone2CSR)
+│    └── fsm (FSM)
+├── csr_bankarray (CSRBankArray)
+│    ├── csrbank_0 (CSRBank) [Gen]
+│    │    ├── csrstorage_0 (CSRStorage) [Gen]
+│    │    ├── csrstorage_1 (CSRStorage) [Gen]
+│    │    └── csrstatus_0 (CSRStatus) [Gen]
+│    └── csrbank_1 (CSRBank) [Gen]
+│         ├── csrstorage_0 (CSRStorage) [Gen]
+│         ├── csrstatus_0 (CSRStatus) [Gen]
+│         ├── csrstorage_1 (CSRStorage) [Gen]
+│         └── csrstatus_1 (CSRStatus) [Gen]
+├── csr_interconnect (InterconnectShared)
+├── [BB:ODDRX1F]
+├── [BB:FD1S3BX]
+├── [BB:FD1S3BX]
+├── [BB:FD1S3BX]
+├── [BB:FD1S3BX]
+├── [BB:ODDRX1F]
+├── [BB:ODDRX1F]
+├── [BB:ODDRX1F]
+├── [BB:ODDRX1F]
+├── [BB:ODDRX1F]
+├── [BB:IDDRX1F]
+├── [BB:IDDRX1F]
+├── [BB:IDDRX1F]
+├── [BB:IDDRX1F]
+├── [BB:IDDRX1F]
+└── [BB:BB]
+Legend:
+  [Gen]: Auto-generated instance name.
+  [BB:NAME]: Blackbox instance (verilog Instance).
+
+*/
 
 //------------------------------------------------------------------------------
 // Signals
 //------------------------------------------------------------------------------
 
-reg           udpcore_soc_rst = 1'd0;
-wire          udpcore_cpu_rst;
-reg     [1:0] udpcore_reset_storage = 2'd0;
-reg           udpcore_reset_re = 1'd0;
-reg    [31:0] udpcore_scratch_storage = 32'd305419896;
-reg           udpcore_scratch_re = 1'd0;
-wire   [31:0] udpcore_bus_errors_status;
-wire          udpcore_bus_errors_we;
-reg           udpcore_bus_errors_re = 1'd0;
-reg           udpcore_bus_error = 1'd0;
-reg    [31:0] udpcore_bus_errors = 32'd0;
-(* syn_keep = "true" *)
-wire          sys_clk;
-wire          sys_rst;
-wire          por_clk;
-reg           int_rst = 1'd1;
-reg           ethphy_reset_storage = 1'd0;
-reg           ethphy_reset_re = 1'd0;
-(* syn_keep = "true" *)
-wire          eth_rx_clk;
-wire          eth_rx_rst;
-(* syn_keep = "true" *)
-wire          eth_tx_clk;
-wire          eth_tx_rst;
-wire          ethphy_eth_tx_clk_o;
-wire          ethphy_reset;
-wire          ethphy_sink_valid;
-wire          ethphy_sink_ready;
-wire          ethphy_sink_first;
-wire          ethphy_sink_last;
-wire    [7:0] ethphy_sink_payload_data;
-wire          ethphy_sink_payload_last_be;
-wire          ethphy_sink_payload_error;
-wire          ethphy_tx_ctl_oddrx1f;
-wire    [3:0] ethphy_tx_data_oddrx1f;
-reg           ethphy_source_valid = 1'd0;
-wire          ethphy_source_ready;
-reg           ethphy_source_first = 1'd0;
-wire          ethphy_source_last;
-reg     [7:0] ethphy_source_payload_data = 8'd0;
-reg           ethphy_source_payload_last_be = 1'd0;
-reg           ethphy_source_payload_error = 1'd0;
-reg           ethphy_link_status = 1'd0;
-reg           ethphy_clock_speed = 1'd0;
-reg           ethphy_duplex_status = 1'd0;
-reg     [2:0] ethphy_status = 3'd0;
-wire          ethphy_we;
-reg           ethphy_re = 1'd0;
-wire          ethphy_rx_ctl_delayf;
-wire    [1:0] ethphy_rx_ctl;
-reg     [1:0] ethphy_rx_ctl_reg = 2'd0;
-wire    [3:0] ethphy_rx_data_delayf;
-wire    [7:0] ethphy_rx_data;
-reg     [7:0] ethphy_rx_data_reg = 8'd0;
-reg     [1:0] ethphy_rx_ctl_reg_d = 2'd0;
-wire          ethphy_last;
-wire          ethphy_mdc;
-wire          ethphy_oe;
-wire          ethphy_w;
-reg     [2:0] ethphy__w_storage = 3'd0;
-reg           ethphy__w_re = 1'd0;
-reg           ethphy_r = 1'd0;
-reg           ethphy__r_status = 1'd0;
-wire          ethphy__r_we;
-reg           ethphy__r_re = 1'd0;
-wire          ethphy_data_w;
-wire          ethphy_data_oe;
-wire          ethphy_data_r;
-wire          core_mac_core_sink_valid;
-wire          core_mac_core_sink_ready;
-wire          core_mac_core_sink_first;
-wire          core_mac_core_sink_last;
-wire    [7:0] core_mac_core_sink_payload_data;
-wire          core_mac_core_sink_payload_last_be;
-wire          core_mac_core_sink_payload_error;
-wire          core_mac_core_source_valid;
-wire          core_mac_core_source_ready;
-wire          core_mac_core_source_first;
-wire          core_mac_core_source_last;
-wire    [7:0] core_mac_core_source_payload_data;
-wire          core_mac_core_source_payload_last_be;
-wire          core_mac_core_source_payload_error;
-wire          core_mac_core_tx_cdc_sink_sink_valid;
-wire          core_mac_core_tx_cdc_sink_sink_ready;
-wire          core_mac_core_tx_cdc_sink_sink_first;
-wire          core_mac_core_tx_cdc_sink_sink_last;
-wire    [7:0] core_mac_core_tx_cdc_sink_sink_payload_data;
-wire          core_mac_core_tx_cdc_sink_sink_payload_last_be;
-wire          core_mac_core_tx_cdc_sink_sink_payload_error;
-wire          core_mac_core_tx_cdc_source_source_valid;
-wire          core_mac_core_tx_cdc_source_source_ready;
-wire          core_mac_core_tx_cdc_source_source_first;
-wire          core_mac_core_tx_cdc_source_source_last;
-wire    [7:0] core_mac_core_tx_cdc_source_source_payload_data;
-wire          core_mac_core_tx_cdc_source_source_payload_last_be;
-wire          core_mac_core_tx_cdc_source_source_payload_error;
-wire          core_mac_core_tx_cdc_cdc_sink_valid;
-wire          core_mac_core_tx_cdc_cdc_sink_ready;
-wire          core_mac_core_tx_cdc_cdc_sink_first;
-wire          core_mac_core_tx_cdc_cdc_sink_last;
-wire    [7:0] core_mac_core_tx_cdc_cdc_sink_payload_data;
-wire          core_mac_core_tx_cdc_cdc_sink_payload_last_be;
-wire          core_mac_core_tx_cdc_cdc_sink_payload_error;
-wire          core_mac_core_tx_cdc_cdc_source_valid;
-wire          core_mac_core_tx_cdc_cdc_source_ready;
-wire          core_mac_core_tx_cdc_cdc_source_first;
-wire          core_mac_core_tx_cdc_cdc_source_last;
-wire    [7:0] core_mac_core_tx_cdc_cdc_source_payload_data;
-wire          core_mac_core_tx_cdc_cdc_source_payload_last_be;
-wire          core_mac_core_tx_cdc_cdc_source_payload_error;
-wire          core_mac_core_tx_cdc_cdc_asyncfifo_we;
-wire          core_mac_core_tx_cdc_cdc_asyncfifo_writable;
-wire          core_mac_core_tx_cdc_cdc_asyncfifo_re;
-wire          core_mac_core_tx_cdc_cdc_asyncfifo_readable;
-wire   [11:0] core_mac_core_tx_cdc_cdc_asyncfifo_din;
-wire   [11:0] core_mac_core_tx_cdc_cdc_asyncfifo_dout;
-wire          core_mac_core_tx_cdc_cdc_graycounter0_ce;
-(* syn_no_retiming = "true" *)
-reg     [5:0] core_mac_core_tx_cdc_cdc_graycounter0_q = 6'd0;
-wire    [5:0] core_mac_core_tx_cdc_cdc_graycounter0_q_next;
-reg     [5:0] core_mac_core_tx_cdc_cdc_graycounter0_q_binary = 6'd0;
-reg     [5:0] core_mac_core_tx_cdc_cdc_graycounter0_q_next_binary = 6'd0;
-wire          core_mac_core_tx_cdc_cdc_graycounter1_ce;
-(* syn_no_retiming = "true" *)
-reg     [5:0] core_mac_core_tx_cdc_cdc_graycounter1_q = 6'd0;
-wire    [5:0] core_mac_core_tx_cdc_cdc_graycounter1_q_next;
-reg     [5:0] core_mac_core_tx_cdc_cdc_graycounter1_q_binary = 6'd0;
-reg     [5:0] core_mac_core_tx_cdc_cdc_graycounter1_q_next_binary = 6'd0;
-wire    [5:0] core_mac_core_tx_cdc_cdc_produce_rdomain;
-wire    [5:0] core_mac_core_tx_cdc_cdc_consume_wdomain;
-wire    [4:0] core_mac_core_tx_cdc_cdc_wrport_adr;
-wire   [11:0] core_mac_core_tx_cdc_cdc_wrport_dat_r;
-wire          core_mac_core_tx_cdc_cdc_wrport_we;
-wire   [11:0] core_mac_core_tx_cdc_cdc_wrport_dat_w;
-wire    [4:0] core_mac_core_tx_cdc_cdc_rdport_adr;
-wire   [11:0] core_mac_core_tx_cdc_cdc_rdport_dat_r;
-wire    [7:0] core_mac_core_tx_cdc_cdc_fifo_in_payload_data;
-wire          core_mac_core_tx_cdc_cdc_fifo_in_payload_last_be;
-wire          core_mac_core_tx_cdc_cdc_fifo_in_payload_error;
-wire          core_mac_core_tx_cdc_cdc_fifo_in_first;
-wire          core_mac_core_tx_cdc_cdc_fifo_in_last;
-wire    [7:0] core_mac_core_tx_cdc_cdc_fifo_out_payload_data;
-wire          core_mac_core_tx_cdc_cdc_fifo_out_payload_last_be;
-wire          core_mac_core_tx_cdc_cdc_fifo_out_payload_error;
-wire          core_mac_core_tx_cdc_cdc_fifo_out_first;
-wire          core_mac_core_tx_cdc_cdc_fifo_out_last;
-wire          core_mac_core_tx_padding_sink_valid;
-reg           core_mac_core_tx_padding_sink_ready = 1'd0;
-wire          core_mac_core_tx_padding_sink_first;
-wire          core_mac_core_tx_padding_sink_last;
-wire    [7:0] core_mac_core_tx_padding_sink_payload_data;
-wire          core_mac_core_tx_padding_sink_payload_last_be;
-wire          core_mac_core_tx_padding_sink_payload_error;
-reg           core_mac_core_tx_padding_source_valid = 1'd0;
-wire          core_mac_core_tx_padding_source_ready;
-reg           core_mac_core_tx_padding_source_first = 1'd0;
-reg           core_mac_core_tx_padding_source_last = 1'd0;
-reg     [7:0] core_mac_core_tx_padding_source_payload_data = 8'd0;
-reg           core_mac_core_tx_padding_source_payload_last_be = 1'd0;
-reg           core_mac_core_tx_padding_source_payload_error = 1'd0;
-reg    [15:0] core_mac_core_tx_padding_counter = 16'd0;
-wire          core_mac_core_tx_padding_counter_done;
-wire          core_mac_core_tx_crc_sink_valid;
-reg           core_mac_core_tx_crc_sink_ready = 1'd0;
-wire          core_mac_core_tx_crc_sink_first;
-wire          core_mac_core_tx_crc_sink_last;
-wire    [7:0] core_mac_core_tx_crc_sink_payload_data;
-wire          core_mac_core_tx_crc_sink_payload_last_be;
-wire          core_mac_core_tx_crc_sink_payload_error;
-reg           core_mac_core_tx_crc_source_valid = 1'd0;
-wire          core_mac_core_tx_crc_source_ready;
-reg           core_mac_core_tx_crc_source_first = 1'd0;
-reg           core_mac_core_tx_crc_source_last = 1'd0;
-reg     [7:0] core_mac_core_tx_crc_source_payload_data = 8'd0;
-reg           core_mac_core_tx_crc_source_payload_last_be = 1'd0;
-reg           core_mac_core_tx_crc_source_payload_error = 1'd0;
-reg     [7:0] core_mac_core_tx_crc_data0 = 8'd0;
-reg           core_mac_core_tx_crc_last_be0 = 1'd0;
-reg    [31:0] core_mac_core_tx_crc_value = 32'd0;
-reg           core_mac_core_tx_crc_error = 1'd0;
-reg           core_mac_core_tx_crc_last_be1 = 1'd0;
-wire    [7:0] core_mac_core_tx_crc_data1;
-wire   [31:0] core_mac_core_tx_crc_last;
-reg    [31:0] core_mac_core_tx_crc_next = 32'd0;
-reg    [31:0] core_mac_core_tx_crc_reg = 32'd4294967295;
-reg           core_mac_core_tx_crc_ce = 1'd0;
-reg           core_mac_core_tx_crc_reset = 1'd0;
-reg    [31:0] core_mac_core_tx_crc_crc_packet = 32'd0;
-reg           core_mac_core_tx_crc_last_be2 = 1'd0;
-reg     [1:0] core_mac_core_tx_crc_cnt = 2'd3;
-wire          core_mac_core_tx_crc_cnt_done;
-reg           core_mac_core_tx_crc_is_ongoing0 = 1'd0;
-reg           core_mac_core_tx_crc_is_ongoing1 = 1'd0;
-wire          core_mac_core_tx_crc_sink_sink_valid;
-wire          core_mac_core_tx_crc_sink_sink_ready;
-wire          core_mac_core_tx_crc_sink_sink_first;
-wire          core_mac_core_tx_crc_sink_sink_last;
-wire    [7:0] core_mac_core_tx_crc_sink_sink_payload_data;
-wire          core_mac_core_tx_crc_sink_sink_payload_last_be;
-wire          core_mac_core_tx_crc_sink_sink_payload_error;
-wire          core_mac_core_tx_crc_source_source_valid;
-wire          core_mac_core_tx_crc_source_source_ready;
-wire          core_mac_core_tx_crc_source_source_first;
-wire          core_mac_core_tx_crc_source_source_last;
-wire    [7:0] core_mac_core_tx_crc_source_source_payload_data;
-wire          core_mac_core_tx_crc_source_source_payload_last_be;
-wire          core_mac_core_tx_crc_source_source_payload_error;
-wire          core_mac_core_tx_crc_pipe_valid_sink_valid;
-wire          core_mac_core_tx_crc_pipe_valid_sink_ready;
-wire          core_mac_core_tx_crc_pipe_valid_sink_first;
-wire          core_mac_core_tx_crc_pipe_valid_sink_last;
-wire    [7:0] core_mac_core_tx_crc_pipe_valid_sink_payload_data;
-wire          core_mac_core_tx_crc_pipe_valid_sink_payload_last_be;
-wire          core_mac_core_tx_crc_pipe_valid_sink_payload_error;
-reg           core_mac_core_tx_crc_pipe_valid_source_valid = 1'd0;
-wire          core_mac_core_tx_crc_pipe_valid_source_ready;
-reg           core_mac_core_tx_crc_pipe_valid_source_first = 1'd0;
-reg           core_mac_core_tx_crc_pipe_valid_source_last = 1'd0;
-reg     [7:0] core_mac_core_tx_crc_pipe_valid_source_payload_data = 8'd0;
-reg           core_mac_core_tx_crc_pipe_valid_source_payload_last_be = 1'd0;
-reg           core_mac_core_tx_crc_pipe_valid_source_payload_error = 1'd0;
-wire          core_mac_core_tx_preamble_sink_valid;
-reg           core_mac_core_tx_preamble_sink_ready = 1'd0;
-wire          core_mac_core_tx_preamble_sink_first;
-wire          core_mac_core_tx_preamble_sink_last;
-wire    [7:0] core_mac_core_tx_preamble_sink_payload_data;
-wire          core_mac_core_tx_preamble_sink_payload_last_be;
-wire          core_mac_core_tx_preamble_sink_payload_error;
-reg           core_mac_core_tx_preamble_source_valid = 1'd0;
-wire          core_mac_core_tx_preamble_source_ready;
-reg           core_mac_core_tx_preamble_source_first = 1'd0;
-reg           core_mac_core_tx_preamble_source_last = 1'd0;
-reg     [7:0] core_mac_core_tx_preamble_source_payload_data = 8'd0;
-wire          core_mac_core_tx_preamble_source_payload_last_be;
-reg           core_mac_core_tx_preamble_source_payload_error = 1'd0;
-reg    [63:0] core_mac_core_tx_preamble_preamble = 64'd15372286728091293013;
-reg     [2:0] core_mac_core_tx_preamble_count = 3'd0;
-wire          core_mac_core_tx_gap_sink_valid;
-reg           core_mac_core_tx_gap_sink_ready = 1'd0;
-wire          core_mac_core_tx_gap_sink_first;
-wire          core_mac_core_tx_gap_sink_last;
-wire    [7:0] core_mac_core_tx_gap_sink_payload_data;
-wire          core_mac_core_tx_gap_sink_payload_last_be;
-wire          core_mac_core_tx_gap_sink_payload_error;
-reg           core_mac_core_tx_gap_source_valid = 1'd0;
-wire          core_mac_core_tx_gap_source_ready;
-reg           core_mac_core_tx_gap_source_first = 1'd0;
-reg           core_mac_core_tx_gap_source_last = 1'd0;
-reg     [7:0] core_mac_core_tx_gap_source_payload_data = 8'd0;
-reg           core_mac_core_tx_gap_source_payload_last_be = 1'd0;
-reg           core_mac_core_tx_gap_source_payload_error = 1'd0;
-reg     [3:0] core_mac_core_tx_gap_counter = 4'd0;
-reg    [31:0] core_mac_core_preamble_errors_status = 32'd0;
-reg    [31:0] core_mac_core_crc_errors_status = 32'd0;
-wire          core_mac_core_rx_preamble_sink_valid;
-reg           core_mac_core_rx_preamble_sink_ready = 1'd0;
-wire          core_mac_core_rx_preamble_sink_first;
-wire          core_mac_core_rx_preamble_sink_last;
-wire    [7:0] core_mac_core_rx_preamble_sink_payload_data;
-wire          core_mac_core_rx_preamble_sink_payload_last_be;
-wire          core_mac_core_rx_preamble_sink_payload_error;
-reg           core_mac_core_rx_preamble_source_valid = 1'd0;
-wire          core_mac_core_rx_preamble_source_ready;
-reg           core_mac_core_rx_preamble_source_first = 1'd0;
-reg           core_mac_core_rx_preamble_source_last = 1'd0;
-wire    [7:0] core_mac_core_rx_preamble_source_payload_data;
-wire          core_mac_core_rx_preamble_source_payload_last_be;
-reg           core_mac_core_rx_preamble_source_payload_error = 1'd0;
-reg           core_mac_core_rx_preamble_error = 1'd0;
-reg    [63:0] core_mac_core_rx_preamble_preamble = 64'd15372286728091293013;
-wire          core_mac_core_pulsesynchronizer0_i;
-wire          core_mac_core_pulsesynchronizer0_o;
-reg           core_mac_core_pulsesynchronizer0_toggle_i = 1'd0;
-wire          core_mac_core_pulsesynchronizer0_toggle_o;
-reg           core_mac_core_pulsesynchronizer0_toggle_o_r = 1'd0;
-wire          core_mac_core_liteethmaccrc32checker_sink_sink_valid;
-reg           core_mac_core_liteethmaccrc32checker_sink_sink_ready = 1'd0;
-wire          core_mac_core_liteethmaccrc32checker_sink_sink_first;
-wire          core_mac_core_liteethmaccrc32checker_sink_sink_last;
-wire    [7:0] core_mac_core_liteethmaccrc32checker_sink_sink_payload_data;
-wire          core_mac_core_liteethmaccrc32checker_sink_sink_payload_last_be;
-wire          core_mac_core_liteethmaccrc32checker_sink_sink_payload_error;
-reg           core_mac_core_liteethmaccrc32checker_source_source_valid = 1'd0;
-wire          core_mac_core_liteethmaccrc32checker_source_source_ready;
-reg           core_mac_core_liteethmaccrc32checker_source_source_first = 1'd0;
-reg           core_mac_core_liteethmaccrc32checker_source_source_last = 1'd0;
-reg     [7:0] core_mac_core_liteethmaccrc32checker_source_source_payload_data = 8'd0;
-reg           core_mac_core_liteethmaccrc32checker_source_source_payload_last_be = 1'd0;
-reg           core_mac_core_liteethmaccrc32checker_source_source_payload_error = 1'd0;
-reg           core_mac_core_liteethmaccrc32checker_error = 1'd0;
-wire    [7:0] core_mac_core_liteethmaccrc32checker_crc_data0;
-wire          core_mac_core_liteethmaccrc32checker_crc_last_be0;
-reg    [31:0] core_mac_core_liteethmaccrc32checker_crc_value = 32'd0;
-reg           core_mac_core_liteethmaccrc32checker_crc_error0 = 1'd0;
-reg           core_mac_core_liteethmaccrc32checker_crc_last_be1 = 1'd0;
-wire    [7:0] core_mac_core_liteethmaccrc32checker_crc_data1;
-wire   [31:0] core_mac_core_liteethmaccrc32checker_crc_last;
-reg    [31:0] core_mac_core_liteethmaccrc32checker_crc_next = 32'd0;
-reg    [31:0] core_mac_core_liteethmaccrc32checker_crc_reg = 32'd4294967295;
-reg           core_mac_core_liteethmaccrc32checker_crc_ce = 1'd0;
-reg           core_mac_core_liteethmaccrc32checker_crc_reset = 1'd0;
-reg           core_mac_core_liteethmaccrc32checker_syncfifo_sink_valid = 1'd0;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_sink_ready;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_sink_first;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_sink_last;
-wire    [7:0] core_mac_core_liteethmaccrc32checker_syncfifo_sink_payload_data;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_sink_payload_last_be;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_sink_payload_error;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_source_valid;
-reg           core_mac_core_liteethmaccrc32checker_syncfifo_source_ready = 1'd0;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_source_first;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_source_last;
-wire    [7:0] core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_data;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_last_be;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_error;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_we;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_writable;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_re;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_readable;
-wire   [11:0] core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_din;
-wire   [11:0] core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_dout;
-reg     [2:0] core_mac_core_liteethmaccrc32checker_syncfifo_level = 3'd0;
-reg           core_mac_core_liteethmaccrc32checker_syncfifo_replace = 1'd0;
-reg     [2:0] core_mac_core_liteethmaccrc32checker_syncfifo_produce = 3'd0;
-reg     [2:0] core_mac_core_liteethmaccrc32checker_syncfifo_consume = 3'd0;
-reg     [2:0] core_mac_core_liteethmaccrc32checker_syncfifo_wrport_adr = 3'd0;
-wire   [11:0] core_mac_core_liteethmaccrc32checker_syncfifo_wrport_dat_r;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_wrport_we;
-wire   [11:0] core_mac_core_liteethmaccrc32checker_syncfifo_wrport_dat_w;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_do_read;
-wire    [2:0] core_mac_core_liteethmaccrc32checker_syncfifo_rdport_adr;
-wire   [11:0] core_mac_core_liteethmaccrc32checker_syncfifo_rdport_dat_r;
-wire    [7:0] core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_payload_data;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_payload_last_be;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_payload_error;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_first;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_last;
-wire    [7:0] core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_payload_data;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_payload_last_be;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_payload_error;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_first;
-wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_last;
-reg           core_mac_core_liteethmaccrc32checker_fifo_reset = 1'd0;
-wire          core_mac_core_liteethmaccrc32checker_fifo_in;
-wire          core_mac_core_liteethmaccrc32checker_fifo_out;
-wire          core_mac_core_liteethmaccrc32checker_fifo_full;
-reg           core_mac_core_liteethmaccrc32checker_last_be = 1'd0;
-reg           core_mac_core_liteethmaccrc32checker_crc_error1 = 1'd0;
-wire          core_mac_core_bufferizeendpoints_sink_sink_valid;
-wire          core_mac_core_bufferizeendpoints_sink_sink_ready;
-wire          core_mac_core_bufferizeendpoints_sink_sink_first;
-wire          core_mac_core_bufferizeendpoints_sink_sink_last;
-wire    [7:0] core_mac_core_bufferizeendpoints_sink_sink_payload_data;
-wire          core_mac_core_bufferizeendpoints_sink_sink_payload_last_be;
-wire          core_mac_core_bufferizeendpoints_sink_sink_payload_error;
-wire          core_mac_core_bufferizeendpoints_source_source_valid;
-wire          core_mac_core_bufferizeendpoints_source_source_ready;
-wire          core_mac_core_bufferizeendpoints_source_source_first;
-wire          core_mac_core_bufferizeendpoints_source_source_last;
-wire    [7:0] core_mac_core_bufferizeendpoints_source_source_payload_data;
-wire          core_mac_core_bufferizeendpoints_source_source_payload_last_be;
-wire          core_mac_core_bufferizeendpoints_source_source_payload_error;
-wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_valid;
-wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_ready;
-wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_first;
-wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_last;
-wire    [7:0] core_mac_core_bufferizeendpoints_pipe_valid_sink_payload_data;
-wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_payload_last_be;
-wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_payload_error;
-reg           core_mac_core_bufferizeendpoints_pipe_valid_source_valid = 1'd0;
-wire          core_mac_core_bufferizeendpoints_pipe_valid_source_ready;
-reg           core_mac_core_bufferizeendpoints_pipe_valid_source_first = 1'd0;
-reg           core_mac_core_bufferizeendpoints_pipe_valid_source_last = 1'd0;
-reg     [7:0] core_mac_core_bufferizeendpoints_pipe_valid_source_payload_data = 8'd0;
-reg           core_mac_core_bufferizeendpoints_pipe_valid_source_payload_last_be = 1'd0;
-reg           core_mac_core_bufferizeendpoints_pipe_valid_source_payload_error = 1'd0;
-wire          core_mac_core_pulsesynchronizer1_i;
-wire          core_mac_core_pulsesynchronizer1_o;
-reg           core_mac_core_pulsesynchronizer1_toggle_i = 1'd0;
-wire          core_mac_core_pulsesynchronizer1_toggle_o;
-reg           core_mac_core_pulsesynchronizer1_toggle_o_r = 1'd0;
-wire          core_mac_core_rx_padding_sink_valid;
-wire          core_mac_core_rx_padding_sink_ready;
-wire          core_mac_core_rx_padding_sink_first;
-wire          core_mac_core_rx_padding_sink_last;
-wire    [7:0] core_mac_core_rx_padding_sink_payload_data;
-wire          core_mac_core_rx_padding_sink_payload_last_be;
-wire          core_mac_core_rx_padding_sink_payload_error;
-wire          core_mac_core_rx_padding_source_valid;
-wire          core_mac_core_rx_padding_source_ready;
-wire          core_mac_core_rx_padding_source_first;
-wire          core_mac_core_rx_padding_source_last;
-wire    [7:0] core_mac_core_rx_padding_source_payload_data;
-wire          core_mac_core_rx_padding_source_payload_last_be;
-wire          core_mac_core_rx_padding_source_payload_error;
-wire          core_mac_core_sink_sink_valid;
-wire          core_mac_core_sink_sink_ready;
-wire          core_mac_core_sink_sink_first;
-wire          core_mac_core_sink_sink_last;
-wire    [7:0] core_mac_core_sink_sink_payload_data;
-wire          core_mac_core_sink_sink_payload_last_be;
-wire          core_mac_core_sink_sink_payload_error;
-wire          core_mac_core_source_source_valid;
-wire          core_mac_core_source_source_ready;
-wire          core_mac_core_source_source_first;
-wire          core_mac_core_source_source_last;
-wire    [7:0] core_mac_core_source_source_payload_data;
-wire          core_mac_core_source_source_payload_last_be;
-wire          core_mac_core_source_source_payload_error;
-wire          core_mac_core_cdc_sink_valid;
-wire          core_mac_core_cdc_sink_ready;
-wire          core_mac_core_cdc_sink_first;
-wire          core_mac_core_cdc_sink_last;
-wire    [7:0] core_mac_core_cdc_sink_payload_data;
-wire          core_mac_core_cdc_sink_payload_last_be;
-wire          core_mac_core_cdc_sink_payload_error;
-wire          core_mac_core_cdc_source_valid;
-wire          core_mac_core_cdc_source_ready;
-wire          core_mac_core_cdc_source_first;
-wire          core_mac_core_cdc_source_last;
-wire    [7:0] core_mac_core_cdc_source_payload_data;
-wire          core_mac_core_cdc_source_payload_last_be;
-wire          core_mac_core_cdc_source_payload_error;
-wire          core_mac_core_cdc_asyncfifo_we;
-wire          core_mac_core_cdc_asyncfifo_writable;
-wire          core_mac_core_cdc_asyncfifo_re;
-wire          core_mac_core_cdc_asyncfifo_readable;
-wire   [11:0] core_mac_core_cdc_asyncfifo_din;
-wire   [11:0] core_mac_core_cdc_asyncfifo_dout;
-wire          core_mac_core_cdc_graycounter0_ce;
-(* syn_no_retiming = "true" *)
-reg     [5:0] core_mac_core_cdc_graycounter0_q = 6'd0;
-wire    [5:0] core_mac_core_cdc_graycounter0_q_next;
-reg     [5:0] core_mac_core_cdc_graycounter0_q_binary = 6'd0;
-reg     [5:0] core_mac_core_cdc_graycounter0_q_next_binary = 6'd0;
-wire          core_mac_core_cdc_graycounter1_ce;
-(* syn_no_retiming = "true" *)
-reg     [5:0] core_mac_core_cdc_graycounter1_q = 6'd0;
-wire    [5:0] core_mac_core_cdc_graycounter1_q_next;
-reg     [5:0] core_mac_core_cdc_graycounter1_q_binary = 6'd0;
-reg     [5:0] core_mac_core_cdc_graycounter1_q_next_binary = 6'd0;
-wire    [5:0] core_mac_core_cdc_produce_rdomain;
-wire    [5:0] core_mac_core_cdc_consume_wdomain;
-wire    [4:0] core_mac_core_cdc_wrport_adr;
-wire   [11:0] core_mac_core_cdc_wrport_dat_r;
-wire          core_mac_core_cdc_wrport_we;
-wire   [11:0] core_mac_core_cdc_wrport_dat_w;
-wire    [4:0] core_mac_core_cdc_rdport_adr;
-wire   [11:0] core_mac_core_cdc_rdport_dat_r;
-wire    [7:0] core_mac_core_cdc_fifo_in_payload_data;
-wire          core_mac_core_cdc_fifo_in_payload_last_be;
-wire          core_mac_core_cdc_fifo_in_payload_error;
-wire          core_mac_core_cdc_fifo_in_first;
-wire          core_mac_core_cdc_fifo_in_last;
-wire    [7:0] core_mac_core_cdc_fifo_out_payload_data;
-wire          core_mac_core_cdc_fifo_out_payload_last_be;
-wire          core_mac_core_cdc_fifo_out_payload_error;
-wire          core_mac_core_cdc_fifo_out_first;
-wire          core_mac_core_cdc_fifo_out_last;
-reg           core_mac_crossbar_source_valid = 1'd0;
-wire          core_mac_crossbar_source_ready;
-reg           core_mac_crossbar_source_first = 1'd0;
-reg           core_mac_crossbar_source_last = 1'd0;
-reg    [15:0] core_mac_crossbar_source_payload_ethernet_type = 16'd0;
-reg    [47:0] core_mac_crossbar_source_payload_sender_mac = 48'd0;
-reg    [47:0] core_mac_crossbar_source_payload_target_mac = 48'd0;
-reg     [7:0] core_mac_crossbar_source_payload_data = 8'd0;
-reg           core_mac_crossbar_source_payload_last_be = 1'd0;
-reg           core_mac_crossbar_source_payload_error = 1'd0;
-wire          core_mac_crossbar_sink_valid;
-reg           core_mac_crossbar_sink_ready = 1'd0;
-wire          core_mac_crossbar_sink_first;
-wire          core_mac_crossbar_sink_last;
-wire   [15:0] core_mac_crossbar_sink_payload_ethernet_type;
-wire   [47:0] core_mac_crossbar_sink_payload_sender_mac;
-wire   [47:0] core_mac_crossbar_sink_payload_target_mac;
-wire    [7:0] core_mac_crossbar_sink_payload_data;
-wire          core_mac_crossbar_sink_payload_last_be;
-wire          core_mac_crossbar_sink_payload_error;
-wire          core_mac_packetizer_sink_valid;
-reg           core_mac_packetizer_sink_ready = 1'd0;
-wire          core_mac_packetizer_sink_first;
-wire          core_mac_packetizer_sink_last;
-wire   [15:0] core_mac_packetizer_sink_payload_ethernet_type;
-wire   [47:0] core_mac_packetizer_sink_payload_sender_mac;
-wire   [47:0] core_mac_packetizer_sink_payload_target_mac;
-wire    [7:0] core_mac_packetizer_sink_payload_data;
-wire          core_mac_packetizer_sink_payload_last_be;
-wire          core_mac_packetizer_sink_payload_error;
-reg           core_mac_packetizer_source_valid = 1'd0;
-wire          core_mac_packetizer_source_ready;
-reg           core_mac_packetizer_source_first = 1'd0;
-reg           core_mac_packetizer_source_last = 1'd0;
-reg     [7:0] core_mac_packetizer_source_payload_data = 8'd0;
-reg           core_mac_packetizer_source_payload_last_be = 1'd0;
-wire          core_mac_packetizer_source_payload_error;
-reg   [111:0] core_mac_packetizer_header = 112'd0;
-reg   [111:0] core_mac_packetizer_sr = 112'd0;
-reg           core_mac_packetizer_sr_load = 1'd0;
-reg           core_mac_packetizer_sr_shift = 1'd0;
-reg     [3:0] core_mac_packetizer_count = 4'd0;
-reg           core_mac_packetizer_source_last_a = 1'd0;
-reg           core_mac_packetizer_source_last_b = 1'd0;
-reg           core_mac_packetizer_source_last_s = 1'd0;
-reg           core_mac_packetizer_fsm_from_idle = 1'd0;
-wire          core_mac_packetizer_sink_last_be;
-wire          core_mac_packetizer_new_last_be;
-reg           core_mac_packetizer_delayed_last_be = 1'd0;
-wire          core_mac_packetizer_in_data_copy;
-reg           core_mac_packetizer_is_ongoing0 = 1'd0;
-reg           core_mac_packetizer_is_ongoing1 = 1'd0;
-reg           core_mac_packetizer_is_ongoing2 = 1'd0;
-wire          core_mac_depacketizer_sink_valid;
-reg           core_mac_depacketizer_sink_ready = 1'd0;
-wire          core_mac_depacketizer_sink_first;
-wire          core_mac_depacketizer_sink_last;
-wire    [7:0] core_mac_depacketizer_sink_payload_data;
-wire          core_mac_depacketizer_sink_payload_last_be;
-wire          core_mac_depacketizer_sink_payload_error;
-reg           core_mac_depacketizer_source_valid = 1'd0;
-wire          core_mac_depacketizer_source_ready;
-reg           core_mac_depacketizer_source_first = 1'd0;
-reg           core_mac_depacketizer_source_last = 1'd0;
-wire   [15:0] core_mac_depacketizer_source_payload_ethernet_type;
-wire   [47:0] core_mac_depacketizer_source_payload_sender_mac;
-wire   [47:0] core_mac_depacketizer_source_payload_target_mac;
-reg     [7:0] core_mac_depacketizer_source_payload_data = 8'd0;
-reg           core_mac_depacketizer_source_payload_last_be = 1'd0;
-wire          core_mac_depacketizer_source_payload_error;
-wire  [111:0] core_mac_depacketizer_header;
-reg   [111:0] core_mac_depacketizer_sr = 112'd0;
-reg           core_mac_depacketizer_sr_shift = 1'd0;
-reg           core_mac_depacketizer_sr_shift_leftover = 1'd0;
-reg     [3:0] core_mac_depacketizer_count = 4'd0;
-reg           core_mac_depacketizer_sink_d_last = 1'd0;
-reg           core_mac_depacketizer_source_last_a = 1'd0;
-reg           core_mac_depacketizer_source_last_b = 1'd0;
-reg           core_mac_depacketizer_source_last_s = 1'd0;
-reg           core_mac_depacketizer_fsm_from_idle = 1'd0;
-wire          core_mac_depacketizer_sink_last_be;
-wire          core_mac_depacketizer_new_last_be;
-reg           core_mac_depacketizer_delayed_last_be = 1'd0;
-wire          core_mac_depacketizer_is_in_copy;
-reg           core_mac_depacketizer_was_in_copy = 1'd0;
-reg           core_mac_depacketizer_is_ongoing0 = 1'd0;
-reg           core_mac_depacketizer_is_ongoing1 = 1'd0;
-reg           core_mac_depacketizer_is_ongoing2 = 1'd0;
-reg           core_mac_depacketizer_is_ongoing3 = 1'd0;
-wire          core_arp_tx_sink_sink_valid;
-reg           core_arp_tx_sink_sink_ready = 1'd0;
-wire          core_arp_tx_sink_sink_first;
-wire          core_arp_tx_sink_sink_last;
-wire          core_arp_tx_sink_sink_payload_reply;
-wire          core_arp_tx_sink_sink_payload_request;
-wire   [31:0] core_arp_tx_sink_sink_payload_ip_address;
-wire   [47:0] core_arp_tx_sink_sink_payload_mac_address;
-reg           core_arp_tx_source_source_valid = 1'd0;
-wire          core_arp_tx_source_source_ready;
-wire          core_arp_tx_source_source_first;
-wire          core_arp_tx_source_source_last;
-reg    [15:0] core_arp_tx_source_source_payload_ethernet_type = 16'd0;
-reg    [47:0] core_arp_tx_source_source_payload_sender_mac = 48'd0;
-reg    [47:0] core_arp_tx_source_source_payload_target_mac = 48'd0;
-wire    [7:0] core_arp_tx_source_source_payload_data;
-wire          core_arp_tx_source_source_payload_last_be;
-wire          core_arp_tx_source_source_payload_error;
-reg     [5:0] core_arp_tx_counter = 6'd0;
-reg           core_arp_tx_packetizer_sink_valid = 1'd0;
-reg           core_arp_tx_packetizer_sink_ready = 1'd0;
-wire          core_arp_tx_packetizer_sink_last;
-reg     [7:0] core_arp_tx_packetizer_sink_payload_data = 8'd0;
-reg           core_arp_tx_packetizer_sink_payload_last_be = 1'd0;
-reg           core_arp_tx_packetizer_sink_payload_error = 1'd0;
-wire    [7:0] core_arp_tx_packetizer_sink_param_hwsize;
-wire   [15:0] core_arp_tx_packetizer_sink_param_hwtype;
-reg    [15:0] core_arp_tx_packetizer_sink_param_opcode = 16'd0;
-wire   [15:0] core_arp_tx_packetizer_sink_param_proto;
-wire    [7:0] core_arp_tx_packetizer_sink_param_protosize;
-wire   [31:0] core_arp_tx_packetizer_sink_param_sender_ip;
-wire   [47:0] core_arp_tx_packetizer_sink_param_sender_mac;
-wire   [31:0] core_arp_tx_packetizer_sink_param_target_ip;
-reg    [47:0] core_arp_tx_packetizer_sink_param_target_mac = 48'd0;
-reg           core_arp_tx_packetizer_source_valid = 1'd0;
-reg           core_arp_tx_packetizer_source_ready = 1'd0;
-reg           core_arp_tx_packetizer_source_first = 1'd0;
-reg           core_arp_tx_packetizer_source_last = 1'd0;
-reg    [15:0] core_arp_tx_packetizer_source_payload_ethernet_type = 16'd0;
-reg    [47:0] core_arp_tx_packetizer_source_payload_sender_mac = 48'd0;
-reg    [47:0] core_arp_tx_packetizer_source_payload_target_mac = 48'd0;
-reg     [7:0] core_arp_tx_packetizer_source_payload_data = 8'd0;
-reg           core_arp_tx_packetizer_source_payload_last_be = 1'd0;
-wire          core_arp_tx_packetizer_source_payload_error;
-reg   [223:0] core_arp_tx_packetizer_header = 224'd0;
-reg   [223:0] core_arp_tx_packetizer_sr = 224'd0;
-reg           core_arp_tx_packetizer_sr_load = 1'd0;
-reg           core_arp_tx_packetizer_sr_shift = 1'd0;
-reg     [4:0] core_arp_tx_packetizer_count = 5'd0;
-reg           core_arp_tx_packetizer_source_last_a = 1'd0;
-reg           core_arp_tx_packetizer_source_last_b = 1'd0;
-reg           core_arp_tx_packetizer_source_last_s = 1'd0;
-reg           core_arp_tx_packetizer_fsm_from_idle = 1'd0;
-wire          core_arp_tx_packetizer_sink_last_be;
-wire          core_arp_tx_packetizer_new_last_be;
-reg           core_arp_tx_packetizer_delayed_last_be = 1'd0;
-wire          core_arp_tx_packetizer_in_data_copy;
-reg           core_arp_tx_packetizer_is_ongoing0 = 1'd0;
-reg           core_arp_tx_packetizer_is_ongoing1 = 1'd0;
-reg           core_arp_tx_packetizer_is_ongoing2 = 1'd0;
-wire          core_arp_rx_sink_sink_valid;
-wire          core_arp_rx_sink_sink_ready;
-wire          core_arp_rx_sink_sink_first;
-wire          core_arp_rx_sink_sink_last;
-wire   [15:0] core_arp_rx_sink_sink_payload_ethernet_type;
-wire   [47:0] core_arp_rx_sink_sink_payload_sender_mac;
-wire   [47:0] core_arp_rx_sink_sink_payload_target_mac;
-wire    [7:0] core_arp_rx_sink_sink_payload_data;
-wire          core_arp_rx_sink_sink_payload_last_be;
-wire          core_arp_rx_sink_sink_payload_error;
-reg           core_arp_rx_source_source_valid = 1'd0;
-wire          core_arp_rx_source_source_ready;
-reg           core_arp_rx_source_source_first = 1'd0;
-reg           core_arp_rx_source_source_last = 1'd0;
-reg           core_arp_rx_source_source_payload_reply = 1'd0;
-reg           core_arp_rx_source_source_payload_request = 1'd0;
-wire   [31:0] core_arp_rx_source_source_payload_ip_address;
-wire   [47:0] core_arp_rx_source_source_payload_mac_address;
-wire          core_arp_rx_depacketizer_sink_valid;
-reg           core_arp_rx_depacketizer_sink_ready = 1'd0;
+wire   [13:0] adr;
+wire          core_arp_mac_port_sink_first;
+wire          core_arp_mac_port_sink_last;
+wire    [7:0] core_arp_mac_port_sink_payload_data;
+wire          core_arp_mac_port_sink_payload_error;
+wire   [15:0] core_arp_mac_port_sink_payload_ethernet_type;
+wire          core_arp_mac_port_sink_payload_last_be;
+wire   [47:0] core_arp_mac_port_sink_payload_sender_mac;
+wire   [47:0] core_arp_mac_port_sink_payload_target_mac;
+reg           core_arp_mac_port_sink_ready = 1'd0;
+wire          core_arp_mac_port_sink_valid;
+reg           core_arp_mac_port_source_first = 1'd0;
+reg           core_arp_mac_port_source_last = 1'd0;
+reg     [7:0] core_arp_mac_port_source_payload_data = 8'd0;
+reg           core_arp_mac_port_source_payload_error = 1'd0;
+reg    [15:0] core_arp_mac_port_source_payload_ethernet_type = 16'd0;
+reg           core_arp_mac_port_source_payload_last_be = 1'd0;
+reg    [47:0] core_arp_mac_port_source_payload_sender_mac = 48'd0;
+reg    [47:0] core_arp_mac_port_source_payload_target_mac = 48'd0;
+wire          core_arp_mac_port_source_ready;
+reg           core_arp_mac_port_source_valid = 1'd0;
+reg     [4:0] core_arp_rx_depacketizer_count = 5'd0;
+reg     [4:0] core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value2 = 5'd0;
+reg           core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value_ce2 = 1'd0;
+reg           core_arp_rx_depacketizer_delayed_last_be = 1'd0;
+reg           core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value1 = 1'd0;
+reg           core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value_ce1 = 1'd0;
+reg           core_arp_rx_depacketizer_fsm_from_idle = 1'd0;
+reg           core_arp_rx_depacketizer_fsm_from_idle_liteetharp_fsm0_next_value3 = 1'd0;
+reg           core_arp_rx_depacketizer_fsm_from_idle_liteetharp_fsm0_next_value_ce3 = 1'd0;
+wire  [223:0] core_arp_rx_depacketizer_header;
+wire          core_arp_rx_depacketizer_is_in_copy;
+reg           core_arp_rx_depacketizer_is_ongoing0 = 1'd0;
+reg           core_arp_rx_depacketizer_is_ongoing1 = 1'd0;
+reg           core_arp_rx_depacketizer_is_ongoing2 = 1'd0;
+reg           core_arp_rx_depacketizer_is_ongoing3 = 1'd0;
+wire          core_arp_rx_depacketizer_new_last_be;
+reg           core_arp_rx_depacketizer_sink_d_last = 1'd0;
 wire          core_arp_rx_depacketizer_sink_first;
 wire          core_arp_rx_depacketizer_sink_last;
+wire          core_arp_rx_depacketizer_sink_last_be;
+wire    [7:0] core_arp_rx_depacketizer_sink_payload_data;
+wire          core_arp_rx_depacketizer_sink_payload_error;
 wire   [15:0] core_arp_rx_depacketizer_sink_payload_ethernet_type;
+wire          core_arp_rx_depacketizer_sink_payload_last_be;
 wire   [47:0] core_arp_rx_depacketizer_sink_payload_sender_mac;
 wire   [47:0] core_arp_rx_depacketizer_sink_payload_target_mac;
-wire    [7:0] core_arp_rx_depacketizer_sink_payload_data;
-wire          core_arp_rx_depacketizer_sink_payload_last_be;
-wire          core_arp_rx_depacketizer_sink_payload_error;
-reg           core_arp_rx_depacketizer_source_valid = 1'd0;
-reg           core_arp_rx_depacketizer_source_ready = 1'd0;
+reg           core_arp_rx_depacketizer_sink_ready = 1'd0;
+wire          core_arp_rx_depacketizer_sink_valid;
 reg           core_arp_rx_depacketizer_source_last = 1'd0;
-reg     [7:0] core_arp_rx_depacketizer_source_payload_data = 8'd0;
-reg           core_arp_rx_depacketizer_source_payload_last_be = 1'd0;
-wire          core_arp_rx_depacketizer_source_payload_error;
+reg           core_arp_rx_depacketizer_source_last_a = 1'd0;
+reg           core_arp_rx_depacketizer_source_last_b = 1'd0;
+reg           core_arp_rx_depacketizer_source_last_s = 1'd0;
 wire    [7:0] core_arp_rx_depacketizer_source_param_hwsize;
 wire   [15:0] core_arp_rx_depacketizer_source_param_hwtype;
 wire   [15:0] core_arp_rx_depacketizer_source_param_opcode;
@@ -698,224 +325,601 @@ wire   [31:0] core_arp_rx_depacketizer_source_param_sender_ip;
 wire   [47:0] core_arp_rx_depacketizer_source_param_sender_mac;
 wire   [31:0] core_arp_rx_depacketizer_source_param_target_ip;
 wire   [47:0] core_arp_rx_depacketizer_source_param_target_mac;
-wire  [223:0] core_arp_rx_depacketizer_header;
+reg     [7:0] core_arp_rx_depacketizer_source_payload_data = 8'd0;
+wire          core_arp_rx_depacketizer_source_payload_error;
+reg           core_arp_rx_depacketizer_source_payload_last_be = 1'd0;
+reg           core_arp_rx_depacketizer_source_ready = 1'd0;
+reg           core_arp_rx_depacketizer_source_valid = 1'd0;
 reg   [223:0] core_arp_rx_depacketizer_sr = 224'd0;
 reg           core_arp_rx_depacketizer_sr_shift = 1'd0;
 reg           core_arp_rx_depacketizer_sr_shift_leftover = 1'd0;
-reg     [4:0] core_arp_rx_depacketizer_count = 5'd0;
-reg           core_arp_rx_depacketizer_sink_d_last = 1'd0;
-reg           core_arp_rx_depacketizer_source_last_a = 1'd0;
-reg           core_arp_rx_depacketizer_source_last_b = 1'd0;
-reg           core_arp_rx_depacketizer_source_last_s = 1'd0;
-reg           core_arp_rx_depacketizer_fsm_from_idle = 1'd0;
-wire          core_arp_rx_depacketizer_sink_last_be;
-wire          core_arp_rx_depacketizer_new_last_be;
-reg           core_arp_rx_depacketizer_delayed_last_be = 1'd0;
-wire          core_arp_rx_depacketizer_is_in_copy;
 reg           core_arp_rx_depacketizer_was_in_copy = 1'd0;
-reg           core_arp_rx_depacketizer_is_ongoing0 = 1'd0;
-reg           core_arp_rx_depacketizer_is_ongoing1 = 1'd0;
-reg           core_arp_rx_depacketizer_is_ongoing2 = 1'd0;
-reg           core_arp_rx_depacketizer_is_ongoing3 = 1'd0;
-reg           core_arp_rx_valid = 1'd0;
 reg           core_arp_rx_reply = 1'd0;
 reg           core_arp_rx_request = 1'd0;
-wire          core_arp_table_sink_valid;
-reg           core_arp_table_sink_ready = 1'd0;
+wire          core_arp_rx_sink_sink_first;
+wire          core_arp_rx_sink_sink_last;
+wire    [7:0] core_arp_rx_sink_sink_payload_data;
+wire          core_arp_rx_sink_sink_payload_error;
+wire   [15:0] core_arp_rx_sink_sink_payload_ethernet_type;
+wire          core_arp_rx_sink_sink_payload_last_be;
+wire   [47:0] core_arp_rx_sink_sink_payload_sender_mac;
+wire   [47:0] core_arp_rx_sink_sink_payload_target_mac;
+wire          core_arp_rx_sink_sink_ready;
+wire          core_arp_rx_sink_sink_valid;
+reg           core_arp_rx_source_source_first = 1'd0;
+reg           core_arp_rx_source_source_last = 1'd0;
+wire   [31:0] core_arp_rx_source_source_payload_ip_address;
+wire   [47:0] core_arp_rx_source_source_payload_mac_address;
+reg           core_arp_rx_source_source_payload_reply = 1'd0;
+reg           core_arp_rx_source_source_payload_request = 1'd0;
+wire          core_arp_rx_source_source_ready;
+reg           core_arp_rx_source_source_valid = 1'd0;
+reg           core_arp_rx_valid = 1'd0;
+reg           core_arp_table_cache_clear_enable = 1'd1;
+reg    [26:0] core_arp_table_cache_count = 27'd125000000;
+wire          core_arp_table_cache_done;
+reg           core_arp_table_cache_enable = 1'd1;
+reg           core_arp_table_cache_error = 1'd0;
+reg           core_arp_table_cache_error_liteetharp_liteetharpcache_next_value2 = 1'd0;
+reg           core_arp_table_cache_error_liteetharp_liteetharpcache_next_value_ce2 = 1'd0;
+reg           core_arp_table_cache_mem_rd_port_adr = 1'd0;
+wire   [80:0] core_arp_table_cache_mem_rd_port_dat_r;
+wire   [31:0] core_arp_table_cache_mem_rd_port_ip_address;
+wire   [47:0] core_arp_table_cache_mem_rd_port_mac_address;
+wire          core_arp_table_cache_mem_rd_port_valid;
+reg           core_arp_table_cache_mem_wr_port_adr = 1'd0;
+wire   [80:0] core_arp_table_cache_mem_wr_port_dat_r;
+reg    [80:0] core_arp_table_cache_mem_wr_port_dat_w = 81'd0;
+reg    [31:0] core_arp_table_cache_mem_wr_port_ip_address = 32'd0;
+reg    [47:0] core_arp_table_cache_mem_wr_port_mac_address = 48'd0;
+reg           core_arp_table_cache_mem_wr_port_valid = 1'd0;
+reg           core_arp_table_cache_mem_wr_port_we = 1'd0;
+reg    [31:0] core_arp_table_cache_request_payload_ip_address = 32'd0;
+reg           core_arp_table_cache_request_ready = 1'd0;
+reg           core_arp_table_cache_request_valid = 1'd0;
+reg           core_arp_table_cache_response_payload_error = 1'd0;
+reg    [47:0] core_arp_table_cache_response_payload_mac_address = 48'd0;
+reg           core_arp_table_cache_response_valid = 1'd0;
+reg           core_arp_table_cache_search_count = 1'd0;
+reg           core_arp_table_cache_search_count_liteetharp_liteetharpcache_next_value1 = 1'd0;
+reg           core_arp_table_cache_search_count_liteetharp_liteetharpcache_next_value_ce1 = 1'd0;
+reg           core_arp_table_cache_update_count = 1'd0;
+reg           core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value0 = 1'd0;
+reg           core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value_ce0 = 1'd0;
+reg    [31:0] core_arp_table_cache_update_payload_ip_address = 32'd0;
+reg    [47:0] core_arp_table_cache_update_payload_mac_address = 48'd0;
+reg           core_arp_table_cache_update_ready = 1'd0;
+reg           core_arp_table_cache_update_valid = 1'd0;
+reg           core_arp_table_cache_wait = 1'd0;
+reg     [2:0] core_arp_table_request_counter = 3'd0;
+reg     [2:0] core_arp_table_request_counter_liteetharp_fsm_next_value3 = 3'd0;
+reg           core_arp_table_request_counter_liteetharp_fsm_next_value_ce3 = 1'd0;
+reg    [31:0] core_arp_table_request_ip_address = 32'd0;
+reg    [31:0] core_arp_table_request_ip_address_liteetharp_fsm_next_value4 = 32'd0;
+reg           core_arp_table_request_ip_address_liteetharp_fsm_next_value_ce4 = 1'd0;
+reg           core_arp_table_request_pending = 1'd0;
+reg           core_arp_table_request_pending_liteetharp_fsm_next_value0 = 1'd0;
+reg           core_arp_table_request_pending_liteetharp_fsm_next_value_ce0 = 1'd0;
+wire   [31:0] core_arp_table_request_request_payload_ip_address;
+reg           core_arp_table_request_request_ready = 1'd0;
+reg           core_arp_table_request_request_valid = 1'd0;
+reg    [23:0] core_arp_table_request_timer_count = 24'd12500000;
+wire          core_arp_table_request_timer_done;
+wire          core_arp_table_request_timer_wait;
+reg           core_arp_table_response_response_payload_failed = 1'd0;
+reg           core_arp_table_response_response_payload_failed_liteetharp_fsm_next_value2 = 1'd0;
+reg           core_arp_table_response_response_payload_failed_liteetharp_fsm_next_value_ce2 = 1'd0;
+reg    [47:0] core_arp_table_response_response_payload_mac_address = 48'd0;
+reg    [47:0] core_arp_table_response_response_payload_mac_address_liteetharp_fsm_next_value1 = 48'd0;
+reg           core_arp_table_response_response_payload_mac_address_liteetharp_fsm_next_value_ce1 = 1'd0;
+reg           core_arp_table_response_response_ready = 1'd0;
+reg           core_arp_table_response_response_valid = 1'd0;
 wire          core_arp_table_sink_first;
 wire          core_arp_table_sink_last;
-wire          core_arp_table_sink_payload_reply;
-wire          core_arp_table_sink_payload_request;
 wire   [31:0] core_arp_table_sink_payload_ip_address;
 wire   [47:0] core_arp_table_sink_payload_mac_address;
-reg           core_arp_table_source_valid = 1'd0;
-wire          core_arp_table_source_ready;
+wire          core_arp_table_sink_payload_reply;
+wire          core_arp_table_sink_payload_request;
+reg           core_arp_table_sink_ready = 1'd0;
+wire          core_arp_table_sink_valid;
 reg           core_arp_table_source_first = 1'd0;
 reg           core_arp_table_source_last = 1'd0;
-reg           core_arp_table_source_payload_reply = 1'd0;
-reg           core_arp_table_source_payload_request = 1'd0;
 reg    [31:0] core_arp_table_source_payload_ip_address = 32'd0;
 reg    [47:0] core_arp_table_source_payload_mac_address = 48'd0;
-reg           core_arp_table_request_valid = 1'd0;
-reg           core_arp_table_request_ready = 1'd0;
-wire   [31:0] core_arp_table_request_payload_ip_address;
-reg           core_arp_table_response_valid = 1'd0;
-reg           core_arp_table_response_ready = 1'd0;
-reg           core_arp_table_response_payload_failed = 1'd0;
-wire   [47:0] core_arp_table_response_payload_mac_address;
-reg           core_arp_table_request_pending = 1'd0;
-reg           core_arp_table_request_pending_clr = 1'd0;
-reg           core_arp_table_request_pending_set = 1'd0;
-reg    [31:0] core_arp_table_request_ip_address = 32'd0;
-reg           core_arp_table_request_ip_address_reset = 1'd0;
-reg           core_arp_table_request_ip_address_update = 1'd0;
-wire          core_arp_table_request_timer_wait;
-wire          core_arp_table_request_timer_done;
-reg    [23:0] core_arp_table_request_timer_count = 24'd12500000;
-reg     [2:0] core_arp_table_request_counter = 3'd0;
-reg           core_arp_table_request_counter_reset = 1'd0;
-reg           core_arp_table_request_counter_ce = 1'd0;
-reg           core_arp_table_update = 1'd0;
-reg           core_arp_table_cached_valid = 1'd0;
-reg    [31:0] core_arp_table_cached_ip_address = 32'd0;
-reg    [47:0] core_arp_table_cached_mac_address = 48'd0;
-wire          core_arp_table_cached_timer_wait;
-wire          core_arp_table_cached_timer_done;
-reg    [30:0] core_arp_table_cached_timer_count = 31'd1250000000;
-wire          core_arp_mac_port_sink_valid;
-reg           core_arp_mac_port_sink_ready = 1'd0;
-wire          core_arp_mac_port_sink_first;
-wire          core_arp_mac_port_sink_last;
-wire   [15:0] core_arp_mac_port_sink_payload_ethernet_type;
-wire   [47:0] core_arp_mac_port_sink_payload_sender_mac;
-wire   [47:0] core_arp_mac_port_sink_payload_target_mac;
-wire    [7:0] core_arp_mac_port_sink_payload_data;
-wire          core_arp_mac_port_sink_payload_last_be;
-wire          core_arp_mac_port_sink_payload_error;
-reg           core_arp_mac_port_source_valid = 1'd0;
-wire          core_arp_mac_port_source_ready;
-reg           core_arp_mac_port_source_first = 1'd0;
-reg           core_arp_mac_port_source_last = 1'd0;
-reg    [15:0] core_arp_mac_port_source_payload_ethernet_type = 16'd0;
-reg    [47:0] core_arp_mac_port_source_payload_sender_mac = 48'd0;
-reg    [47:0] core_arp_mac_port_source_payload_target_mac = 48'd0;
-reg     [7:0] core_arp_mac_port_source_payload_data = 8'd0;
-reg           core_arp_mac_port_source_payload_last_be = 1'd0;
-reg           core_arp_mac_port_source_payload_error = 1'd0;
-wire          core_ip_tx_sink_sink_valid;
-wire          core_ip_tx_sink_sink_ready;
-wire          core_ip_tx_sink_sink_first;
-wire          core_ip_tx_sink_sink_last;
-wire    [7:0] core_ip_tx_sink_sink_payload_data;
-wire          core_ip_tx_sink_sink_payload_last_be;
-wire          core_ip_tx_sink_sink_payload_error;
-wire   [15:0] core_ip_tx_sink_sink_param_length;
-wire    [7:0] core_ip_tx_sink_sink_param_protocol;
-wire   [31:0] core_ip_tx_sink_sink_param_ip_address;
-reg           core_ip_tx_source_source_valid = 1'd0;
-wire          core_ip_tx_source_source_ready;
-reg           core_ip_tx_source_source_first = 1'd0;
-reg           core_ip_tx_source_source_last = 1'd0;
-reg    [15:0] core_ip_tx_source_source_payload_ethernet_type = 16'd0;
-reg    [47:0] core_ip_tx_source_source_payload_sender_mac = 48'd0;
-reg    [47:0] core_ip_tx_source_source_payload_target_mac = 48'd0;
-reg     [7:0] core_ip_tx_source_source_payload_data = 8'd0;
-reg           core_ip_tx_source_source_payload_last_be = 1'd0;
-reg           core_ip_tx_source_source_payload_error = 1'd0;
-reg           core_ip_tx_target_unreachable = 1'd0;
-wire  [159:0] core_ip_tx_liteethipv4checksum_header;
-wire   [15:0] core_ip_tx_liteethipv4checksum_value;
-wire          core_ip_tx_liteethipv4checksum_done;
-reg    [16:0] core_ip_tx_liteethipv4checksum_r = 17'd0;
-wire   [16:0] core_ip_tx_liteethipv4checksum_s_next0;
-reg    [16:0] core_ip_tx_liteethipv4checksum_r_next0 = 17'd0;
-reg           core_ip_tx_liteethipv4checksum0 = 1'd0;
-wire   [16:0] core_ip_tx_liteethipv4checksum_s_next1;
-reg    [16:0] core_ip_tx_liteethipv4checksum_r_next1 = 17'd0;
-reg           core_ip_tx_liteethipv4checksum1 = 1'd0;
-wire   [16:0] core_ip_tx_liteethipv4checksum_s_next2;
-reg    [16:0] core_ip_tx_liteethipv4checksum_r_next2 = 17'd0;
-reg           core_ip_tx_liteethipv4checksum2 = 1'd0;
-wire   [16:0] core_ip_tx_liteethipv4checksum_s_next3;
-reg    [16:0] core_ip_tx_liteethipv4checksum_r_next3 = 17'd0;
-reg           core_ip_tx_liteethipv4checksum3 = 1'd0;
-wire   [16:0] core_ip_tx_liteethipv4checksum_s_next4;
-reg    [16:0] core_ip_tx_liteethipv4checksum_r_next4 = 17'd0;
-reg           core_ip_tx_liteethipv4checksum4 = 1'd0;
-wire   [16:0] core_ip_tx_liteethipv4checksum_s_next5;
-reg    [16:0] core_ip_tx_liteethipv4checksum_r_next5 = 17'd0;
-reg           core_ip_tx_liteethipv4checksum5 = 1'd0;
-wire   [16:0] core_ip_tx_liteethipv4checksum_s_next6;
-reg    [16:0] core_ip_tx_liteethipv4checksum_r_next6 = 17'd0;
-reg           core_ip_tx_liteethipv4checksum6 = 1'd0;
-wire   [16:0] core_ip_tx_liteethipv4checksum_s_next7;
-reg    [16:0] core_ip_tx_liteethipv4checksum_r_next7 = 17'd0;
-reg           core_ip_tx_liteethipv4checksum7 = 1'd0;
-wire   [16:0] core_ip_tx_liteethipv4checksum_s_next8;
-reg    [16:0] core_ip_tx_liteethipv4checksum_r_next8 = 17'd0;
-reg           core_ip_tx_liteethipv4checksum8 = 1'd0;
-reg     [3:0] core_ip_tx_liteethipv4checksum_counter = 4'd0;
-wire          core_ip_tx_liteethipv4checksum_counter_ce;
-wire          core_ip_tx_ce;
-wire          core_ip_tx_reset;
-wire          core_ip_tx_packetizer_sink_valid;
-reg           core_ip_tx_packetizer_sink_ready = 1'd0;
-wire          core_ip_tx_packetizer_sink_last;
-wire    [7:0] core_ip_tx_packetizer_sink_payload_data;
-wire          core_ip_tx_packetizer_sink_payload_last_be;
-reg           core_ip_tx_packetizer_sink_payload_error = 1'd0;
-wire   [15:0] core_ip_tx_packetizer_sink_param_checksum;
-wire   [15:0] core_ip_tx_packetizer_sink_param_identification;
-wire    [3:0] core_ip_tx_packetizer_sink_param_ihl;
-wire    [7:0] core_ip_tx_packetizer_sink_param_protocol;
-wire   [31:0] core_ip_tx_packetizer_sink_param_sender_ip;
-wire   [31:0] core_ip_tx_packetizer_sink_param_target_ip;
-wire   [15:0] core_ip_tx_packetizer_sink_param_total_length;
-wire    [7:0] core_ip_tx_packetizer_sink_param_ttl;
-wire    [3:0] core_ip_tx_packetizer_sink_param_version;
-reg           core_ip_tx_packetizer_source_valid = 1'd0;
-reg           core_ip_tx_packetizer_source_ready = 1'd0;
-reg           core_ip_tx_packetizer_source_first = 1'd0;
-reg           core_ip_tx_packetizer_source_last = 1'd0;
-reg    [15:0] core_ip_tx_packetizer_source_payload_ethernet_type = 16'd0;
-reg    [47:0] core_ip_tx_packetizer_source_payload_sender_mac = 48'd0;
-reg    [47:0] core_ip_tx_packetizer_source_payload_target_mac = 48'd0;
-reg     [7:0] core_ip_tx_packetizer_source_payload_data = 8'd0;
-reg           core_ip_tx_packetizer_source_payload_last_be = 1'd0;
-wire          core_ip_tx_packetizer_source_payload_error;
-reg   [159:0] core_ip_tx_packetizer_header = 160'd0;
-reg   [159:0] core_ip_tx_packetizer_sr = 160'd0;
-reg           core_ip_tx_packetizer_sr_load = 1'd0;
-reg           core_ip_tx_packetizer_sr_shift = 1'd0;
-reg     [4:0] core_ip_tx_packetizer_count = 5'd0;
-reg           core_ip_tx_packetizer_source_last_a = 1'd0;
-reg           core_ip_tx_packetizer_source_last_b = 1'd0;
-reg           core_ip_tx_packetizer_source_last_s = 1'd0;
-reg           core_ip_tx_packetizer_fsm_from_idle = 1'd0;
-wire          core_ip_tx_packetizer_sink_last_be;
-wire          core_ip_tx_packetizer_new_last_be;
-reg           core_ip_tx_packetizer_delayed_last_be = 1'd0;
-wire          core_ip_tx_packetizer_in_data_copy;
-reg           core_ip_tx_packetizer_is_ongoing0 = 1'd0;
-reg           core_ip_tx_packetizer_is_ongoing1 = 1'd0;
-reg           core_ip_tx_packetizer_is_ongoing2 = 1'd0;
-reg    [47:0] core_ip_tx_target_mac = 48'd0;
-wire          core_ip_rx_sink_sink_valid;
-wire          core_ip_rx_sink_sink_ready;
-wire          core_ip_rx_sink_sink_first;
-wire          core_ip_rx_sink_sink_last;
-wire   [15:0] core_ip_rx_sink_sink_payload_ethernet_type;
-wire   [47:0] core_ip_rx_sink_sink_payload_sender_mac;
-wire   [47:0] core_ip_rx_sink_sink_payload_target_mac;
-wire    [7:0] core_ip_rx_sink_sink_payload_data;
-wire          core_ip_rx_sink_sink_payload_last_be;
-wire          core_ip_rx_sink_sink_payload_error;
-reg           core_ip_rx_source_source_valid = 1'd0;
-wire          core_ip_rx_source_source_ready;
-reg           core_ip_rx_source_source_first = 1'd0;
-wire          core_ip_rx_source_source_last;
-wire    [7:0] core_ip_rx_source_source_payload_data;
-wire          core_ip_rx_source_source_payload_last_be;
-wire          core_ip_rx_source_source_payload_error;
-wire   [15:0] core_ip_rx_source_source_param_length;
-wire    [7:0] core_ip_rx_source_source_param_protocol;
-wire   [31:0] core_ip_rx_source_source_param_ip_address;
-wire          core_ip_rx_depacketizer_sink_valid;
-reg           core_ip_rx_depacketizer_sink_ready = 1'd0;
+reg           core_arp_table_source_payload_reply = 1'd0;
+reg           core_arp_table_source_payload_request = 1'd0;
+wire          core_arp_table_source_ready;
+reg           core_arp_table_source_valid = 1'd0;
+reg     [5:0] core_arp_tx_counter = 6'd0;
+reg     [5:0] core_arp_tx_counter_liteetharp_next_value = 6'd0;
+reg           core_arp_tx_counter_liteetharp_next_value_ce = 1'd0;
+reg     [4:0] core_arp_tx_packetizer_count = 5'd0;
+reg     [4:0] core_arp_tx_packetizer_count_liteetharp_fsm0_next_value0 = 5'd0;
+reg           core_arp_tx_packetizer_count_liteetharp_fsm0_next_value_ce0 = 1'd0;
+reg           core_arp_tx_packetizer_delayed_last_be = 1'd0;
+reg           core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value0 = 1'd0;
+reg           core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value_ce0 = 1'd0;
+reg           core_arp_tx_packetizer_fsm_from_idle = 1'd0;
+reg           core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value1 = 1'd0;
+reg           core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value_ce1 = 1'd0;
+reg   [223:0] core_arp_tx_packetizer_header = 224'd0;
+wire          core_arp_tx_packetizer_in_data_copy;
+reg           core_arp_tx_packetizer_is_ongoing0 = 1'd0;
+reg           core_arp_tx_packetizer_is_ongoing1 = 1'd0;
+reg           core_arp_tx_packetizer_is_ongoing2 = 1'd0;
+wire          core_arp_tx_packetizer_new_last_be;
+wire          core_arp_tx_packetizer_sink_last;
+wire          core_arp_tx_packetizer_sink_last_be;
+wire    [7:0] core_arp_tx_packetizer_sink_param_hwsize;
+wire   [15:0] core_arp_tx_packetizer_sink_param_hwtype;
+reg    [15:0] core_arp_tx_packetizer_sink_param_opcode = 16'd0;
+wire   [15:0] core_arp_tx_packetizer_sink_param_proto;
+wire    [7:0] core_arp_tx_packetizer_sink_param_protosize;
+wire   [31:0] core_arp_tx_packetizer_sink_param_sender_ip;
+wire   [47:0] core_arp_tx_packetizer_sink_param_sender_mac;
+wire   [31:0] core_arp_tx_packetizer_sink_param_target_ip;
+reg    [47:0] core_arp_tx_packetizer_sink_param_target_mac = 48'd0;
+reg     [7:0] core_arp_tx_packetizer_sink_payload_data = 8'd0;
+reg           core_arp_tx_packetizer_sink_payload_error = 1'd0;
+reg           core_arp_tx_packetizer_sink_payload_last_be = 1'd0;
+reg           core_arp_tx_packetizer_sink_ready = 1'd0;
+reg           core_arp_tx_packetizer_sink_valid = 1'd0;
+reg           core_arp_tx_packetizer_source_first = 1'd0;
+reg           core_arp_tx_packetizer_source_last = 1'd0;
+reg           core_arp_tx_packetizer_source_last_a = 1'd0;
+reg           core_arp_tx_packetizer_source_last_b = 1'd0;
+reg           core_arp_tx_packetizer_source_last_s = 1'd0;
+reg     [7:0] core_arp_tx_packetizer_source_payload_data = 8'd0;
+wire          core_arp_tx_packetizer_source_payload_error;
+reg    [15:0] core_arp_tx_packetizer_source_payload_ethernet_type = 16'd0;
+reg           core_arp_tx_packetizer_source_payload_last_be = 1'd0;
+reg    [47:0] core_arp_tx_packetizer_source_payload_sender_mac = 48'd0;
+reg    [47:0] core_arp_tx_packetizer_source_payload_target_mac = 48'd0;
+reg           core_arp_tx_packetizer_source_ready = 1'd0;
+reg           core_arp_tx_packetizer_source_valid = 1'd0;
+reg   [223:0] core_arp_tx_packetizer_sr = 224'd0;
+reg           core_arp_tx_packetizer_sr_load = 1'd0;
+reg           core_arp_tx_packetizer_sr_shift = 1'd0;
+wire          core_arp_tx_sink_sink_first;
+wire          core_arp_tx_sink_sink_last;
+wire   [31:0] core_arp_tx_sink_sink_payload_ip_address;
+wire   [47:0] core_arp_tx_sink_sink_payload_mac_address;
+wire          core_arp_tx_sink_sink_payload_reply;
+wire          core_arp_tx_sink_sink_payload_request;
+reg           core_arp_tx_sink_sink_ready = 1'd0;
+wire          core_arp_tx_sink_sink_valid;
+wire          core_arp_tx_source_source_first;
+wire          core_arp_tx_source_source_last;
+wire    [7:0] core_arp_tx_source_source_payload_data;
+wire          core_arp_tx_source_source_payload_error;
+reg    [15:0] core_arp_tx_source_source_payload_ethernet_type = 16'd0;
+wire          core_arp_tx_source_source_payload_last_be;
+reg    [47:0] core_arp_tx_source_source_payload_sender_mac = 48'd0;
+reg    [47:0] core_arp_tx_source_source_payload_target_mac = 48'd0;
+wire          core_arp_tx_source_source_ready;
+reg           core_arp_tx_source_source_valid = 1'd0;
+wire          core_crossbar_sink_first;
+wire          core_crossbar_sink_last;
+wire   [15:0] core_crossbar_sink_param_dst_port;
+wire   [31:0] core_crossbar_sink_param_ip_address;
+wire   [15:0] core_crossbar_sink_param_length;
+wire   [15:0] core_crossbar_sink_param_src_port;
+wire    [7:0] core_crossbar_sink_payload_data;
+wire          core_crossbar_sink_payload_error;
+wire          core_crossbar_sink_payload_last_be;
+reg           core_crossbar_sink_ready = 1'd0;
+wire          core_crossbar_sink_valid;
+wire          core_crossbar_source_first;
+wire          core_crossbar_source_last;
+wire   [15:0] core_crossbar_source_param_dst_port;
+wire   [31:0] core_crossbar_source_param_ip_address;
+wire   [15:0] core_crossbar_source_param_length;
+wire   [15:0] core_crossbar_source_param_src_port;
+wire    [7:0] core_crossbar_source_payload_data;
+wire          core_crossbar_source_payload_error;
+wire          core_crossbar_source_payload_last_be;
+wire          core_crossbar_source_ready;
+wire          core_crossbar_source_valid;
+reg           core_icmp_echo_param_fifo_consume = 1'd0;
+wire          core_icmp_echo_param_fifo_do_read;
+wire          core_icmp_echo_param_fifo_fifo_in_first;
+wire          core_icmp_echo_param_fifo_fifo_in_last;
+wire   [15:0] core_icmp_echo_param_fifo_fifo_in_param_checksum;
+wire    [7:0] core_icmp_echo_param_fifo_fifo_in_param_code;
+wire   [31:0] core_icmp_echo_param_fifo_fifo_in_param_ip_address;
+wire   [15:0] core_icmp_echo_param_fifo_fifo_in_param_length;
+wire    [7:0] core_icmp_echo_param_fifo_fifo_in_param_msgtype;
+wire   [31:0] core_icmp_echo_param_fifo_fifo_in_param_quench;
+wire          core_icmp_echo_param_fifo_fifo_out_first;
+wire          core_icmp_echo_param_fifo_fifo_out_last;
+wire   [15:0] core_icmp_echo_param_fifo_fifo_out_param_checksum;
+wire    [7:0] core_icmp_echo_param_fifo_fifo_out_param_code;
+wire   [31:0] core_icmp_echo_param_fifo_fifo_out_param_ip_address;
+wire   [15:0] core_icmp_echo_param_fifo_fifo_out_param_length;
+wire    [7:0] core_icmp_echo_param_fifo_fifo_out_param_msgtype;
+wire   [31:0] core_icmp_echo_param_fifo_fifo_out_param_quench;
+reg     [1:0] core_icmp_echo_param_fifo_level0 = 2'd0;
+wire    [1:0] core_icmp_echo_param_fifo_level1;
+reg           core_icmp_echo_param_fifo_produce = 1'd0;
+wire          core_icmp_echo_param_fifo_rdport_adr;
+wire  [113:0] core_icmp_echo_param_fifo_rdport_dat_r;
+wire          core_icmp_echo_param_fifo_rdport_re;
+wire          core_icmp_echo_param_fifo_re;
+reg           core_icmp_echo_param_fifo_readable = 1'd0;
+reg           core_icmp_echo_param_fifo_replace = 1'd0;
+reg           core_icmp_echo_param_fifo_sink_first = 1'd0;
+reg           core_icmp_echo_param_fifo_sink_last = 1'd0;
+wire   [15:0] core_icmp_echo_param_fifo_sink_param_checksum;
+wire    [7:0] core_icmp_echo_param_fifo_sink_param_code;
+wire   [31:0] core_icmp_echo_param_fifo_sink_param_ip_address;
+wire   [15:0] core_icmp_echo_param_fifo_sink_param_length;
+wire    [7:0] core_icmp_echo_param_fifo_sink_param_msgtype;
+wire   [31:0] core_icmp_echo_param_fifo_sink_param_quench;
+wire          core_icmp_echo_param_fifo_sink_ready;
+wire          core_icmp_echo_param_fifo_sink_valid;
+wire          core_icmp_echo_param_fifo_source_first;
+wire          core_icmp_echo_param_fifo_source_last;
+wire   [15:0] core_icmp_echo_param_fifo_source_param_checksum;
+wire    [7:0] core_icmp_echo_param_fifo_source_param_code;
+wire   [31:0] core_icmp_echo_param_fifo_source_param_ip_address;
+wire   [15:0] core_icmp_echo_param_fifo_source_param_length;
+wire    [7:0] core_icmp_echo_param_fifo_source_param_msgtype;
+wire   [31:0] core_icmp_echo_param_fifo_source_param_quench;
+wire          core_icmp_echo_param_fifo_source_ready;
+wire          core_icmp_echo_param_fifo_source_valid;
+wire  [113:0] core_icmp_echo_param_fifo_syncfifo_din;
+wire  [113:0] core_icmp_echo_param_fifo_syncfifo_dout;
+wire          core_icmp_echo_param_fifo_syncfifo_re;
+wire          core_icmp_echo_param_fifo_syncfifo_readable;
+wire          core_icmp_echo_param_fifo_syncfifo_we;
+wire          core_icmp_echo_param_fifo_syncfifo_writable;
+reg           core_icmp_echo_param_fifo_wrport_adr = 1'd0;
+wire  [113:0] core_icmp_echo_param_fifo_wrport_dat_r;
+wire  [113:0] core_icmp_echo_param_fifo_wrport_dat_w;
+wire          core_icmp_echo_param_fifo_wrport_we;
+reg     [6:0] core_icmp_echo_payload_fifo_consume = 7'd0;
+wire          core_icmp_echo_payload_fifo_do_read;
+wire          core_icmp_echo_payload_fifo_fifo_in_first;
+wire          core_icmp_echo_payload_fifo_fifo_in_last;
+wire    [7:0] core_icmp_echo_payload_fifo_fifo_in_payload_data;
+wire          core_icmp_echo_payload_fifo_fifo_in_payload_error;
+wire          core_icmp_echo_payload_fifo_fifo_in_payload_last_be;
+wire          core_icmp_echo_payload_fifo_fifo_out_first;
+wire          core_icmp_echo_payload_fifo_fifo_out_last;
+wire    [7:0] core_icmp_echo_payload_fifo_fifo_out_payload_data;
+wire          core_icmp_echo_payload_fifo_fifo_out_payload_error;
+wire          core_icmp_echo_payload_fifo_fifo_out_payload_last_be;
+reg     [7:0] core_icmp_echo_payload_fifo_level0 = 8'd0;
+wire    [7:0] core_icmp_echo_payload_fifo_level1;
+reg     [6:0] core_icmp_echo_payload_fifo_produce = 7'd0;
+wire    [6:0] core_icmp_echo_payload_fifo_rdport_adr;
+wire   [11:0] core_icmp_echo_payload_fifo_rdport_dat_r;
+wire          core_icmp_echo_payload_fifo_rdport_re;
+wire          core_icmp_echo_payload_fifo_re;
+reg           core_icmp_echo_payload_fifo_readable = 1'd0;
+reg           core_icmp_echo_payload_fifo_replace = 1'd0;
+wire          core_icmp_echo_payload_fifo_sink_first;
+wire          core_icmp_echo_payload_fifo_sink_last;
+wire    [7:0] core_icmp_echo_payload_fifo_sink_payload_data;
+wire          core_icmp_echo_payload_fifo_sink_payload_error;
+wire          core_icmp_echo_payload_fifo_sink_payload_last_be;
+wire          core_icmp_echo_payload_fifo_sink_ready;
+wire          core_icmp_echo_payload_fifo_sink_valid;
+wire          core_icmp_echo_payload_fifo_source_first;
+wire          core_icmp_echo_payload_fifo_source_last;
+wire    [7:0] core_icmp_echo_payload_fifo_source_payload_data;
+wire          core_icmp_echo_payload_fifo_source_payload_error;
+wire          core_icmp_echo_payload_fifo_source_payload_last_be;
+wire          core_icmp_echo_payload_fifo_source_ready;
+wire          core_icmp_echo_payload_fifo_source_valid;
+wire   [11:0] core_icmp_echo_payload_fifo_syncfifo_din;
+wire   [11:0] core_icmp_echo_payload_fifo_syncfifo_dout;
+wire          core_icmp_echo_payload_fifo_syncfifo_re;
+wire          core_icmp_echo_payload_fifo_syncfifo_readable;
+wire          core_icmp_echo_payload_fifo_syncfifo_we;
+wire          core_icmp_echo_payload_fifo_syncfifo_writable;
+reg     [6:0] core_icmp_echo_payload_fifo_wrport_adr = 7'd0;
+wire   [11:0] core_icmp_echo_payload_fifo_wrport_dat_r;
+wire   [11:0] core_icmp_echo_payload_fifo_wrport_dat_w;
+wire          core_icmp_echo_payload_fifo_wrport_we;
+wire          core_icmp_echo_sink_first;
+wire          core_icmp_echo_sink_last;
+wire   [15:0] core_icmp_echo_sink_param_checksum;
+wire    [7:0] core_icmp_echo_sink_param_code;
+wire   [31:0] core_icmp_echo_sink_param_ip_address;
+wire   [15:0] core_icmp_echo_sink_param_length;
+wire    [7:0] core_icmp_echo_sink_param_msgtype;
+wire   [31:0] core_icmp_echo_sink_param_quench;
+wire    [7:0] core_icmp_echo_sink_payload_data;
+wire          core_icmp_echo_sink_payload_error;
+wire          core_icmp_echo_sink_payload_last_be;
+reg           core_icmp_echo_sink_ready = 1'd0;
+reg           core_icmp_echo_sink_sink_first = 1'd0;
+reg           core_icmp_echo_sink_sink_last = 1'd0;
+reg    [15:0] core_icmp_echo_sink_sink_param_checksum = 16'd0;
+reg     [7:0] core_icmp_echo_sink_sink_param_code = 8'd0;
+reg    [31:0] core_icmp_echo_sink_sink_param_ip_address = 32'd0;
+reg    [15:0] core_icmp_echo_sink_sink_param_length = 16'd0;
+reg     [7:0] core_icmp_echo_sink_sink_param_msgtype = 8'd0;
+reg    [31:0] core_icmp_echo_sink_sink_param_quench = 32'd0;
+reg     [7:0] core_icmp_echo_sink_sink_payload_data = 8'd0;
+reg           core_icmp_echo_sink_sink_payload_error = 1'd0;
+reg           core_icmp_echo_sink_sink_payload_last_be = 1'd0;
+wire          core_icmp_echo_sink_sink_ready;
+reg           core_icmp_echo_sink_sink_valid = 1'd0;
+wire          core_icmp_echo_sink_valid;
+wire          core_icmp_echo_source_first;
+wire          core_icmp_echo_source_last;
+wire   [15:0] core_icmp_echo_source_param_checksum;
+wire    [7:0] core_icmp_echo_source_param_code;
+wire   [31:0] core_icmp_echo_source_param_ip_address;
+wire   [15:0] core_icmp_echo_source_param_length;
+reg     [7:0] core_icmp_echo_source_param_msgtype = 8'd0;
+wire   [31:0] core_icmp_echo_source_param_quench;
+wire    [7:0] core_icmp_echo_source_payload_data;
+wire          core_icmp_echo_source_payload_error;
+wire          core_icmp_echo_source_payload_last_be;
+wire          core_icmp_echo_source_ready;
+reg           core_icmp_echo_source_source_first = 1'd0;
+wire          core_icmp_echo_source_source_last;
+wire   [15:0] core_icmp_echo_source_source_param_checksum;
+wire    [7:0] core_icmp_echo_source_source_param_code;
+wire   [31:0] core_icmp_echo_source_source_param_ip_address;
+wire   [15:0] core_icmp_echo_source_source_param_length;
+wire    [7:0] core_icmp_echo_source_source_param_msgtype;
+wire   [31:0] core_icmp_echo_source_source_param_quench;
+wire    [7:0] core_icmp_echo_source_source_payload_data;
+wire          core_icmp_echo_source_source_payload_error;
+wire          core_icmp_echo_source_source_payload_last_be;
+wire          core_icmp_echo_source_source_ready;
+wire          core_icmp_echo_source_source_valid;
+wire          core_icmp_echo_source_valid;
+wire          core_icmp_ip_port_sink_first;
+wire          core_icmp_ip_port_sink_last;
+wire   [31:0] core_icmp_ip_port_sink_param_ip_address;
+wire   [15:0] core_icmp_ip_port_sink_param_length;
+wire    [7:0] core_icmp_ip_port_sink_param_protocol;
+wire    [7:0] core_icmp_ip_port_sink_payload_data;
+wire          core_icmp_ip_port_sink_payload_error;
+wire          core_icmp_ip_port_sink_payload_last_be;
+reg           core_icmp_ip_port_sink_ready = 1'd0;
+wire          core_icmp_ip_port_sink_valid;
+reg           core_icmp_ip_port_source_first = 1'd0;
+reg           core_icmp_ip_port_source_last = 1'd0;
+reg    [31:0] core_icmp_ip_port_source_param_ip_address = 32'd0;
+reg    [15:0] core_icmp_ip_port_source_param_length = 16'd0;
+reg     [7:0] core_icmp_ip_port_source_param_protocol = 8'd0;
+reg     [7:0] core_icmp_ip_port_source_payload_data = 8'd0;
+reg           core_icmp_ip_port_source_payload_error = 1'd0;
+reg           core_icmp_ip_port_source_payload_last_be = 1'd0;
+wire          core_icmp_ip_port_source_ready;
+reg           core_icmp_ip_port_source_valid = 1'd0;
+reg     [2:0] core_icmp_rx_depacketizer_count = 3'd0;
+reg     [2:0] core_icmp_rx_depacketizer_count_fsm0_next_value2 = 3'd0;
+reg           core_icmp_rx_depacketizer_count_fsm0_next_value_ce2 = 1'd0;
+reg           core_icmp_rx_depacketizer_delayed_last_be = 1'd0;
+reg           core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value1 = 1'd0;
+reg           core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value_ce1 = 1'd0;
+reg           core_icmp_rx_depacketizer_fsm_from_idle = 1'd0;
+reg           core_icmp_rx_depacketizer_fsm_from_idle_fsm0_next_value3 = 1'd0;
+reg           core_icmp_rx_depacketizer_fsm_from_idle_fsm0_next_value_ce3 = 1'd0;
+wire   [63:0] core_icmp_rx_depacketizer_header;
+wire          core_icmp_rx_depacketizer_is_in_copy;
+reg           core_icmp_rx_depacketizer_is_ongoing0 = 1'd0;
+reg           core_icmp_rx_depacketizer_is_ongoing1 = 1'd0;
+reg           core_icmp_rx_depacketizer_is_ongoing2 = 1'd0;
+reg           core_icmp_rx_depacketizer_is_ongoing3 = 1'd0;
+wire          core_icmp_rx_depacketizer_new_last_be;
+reg           core_icmp_rx_depacketizer_sink_d_last = 1'd0;
+wire          core_icmp_rx_depacketizer_sink_first;
+wire          core_icmp_rx_depacketizer_sink_last;
+wire          core_icmp_rx_depacketizer_sink_last_be;
+wire   [31:0] core_icmp_rx_depacketizer_sink_param_ip_address;
+wire   [15:0] core_icmp_rx_depacketizer_sink_param_length;
+wire    [7:0] core_icmp_rx_depacketizer_sink_param_protocol;
+wire    [7:0] core_icmp_rx_depacketizer_sink_payload_data;
+wire          core_icmp_rx_depacketizer_sink_payload_error;
+wire          core_icmp_rx_depacketizer_sink_payload_last_be;
+reg           core_icmp_rx_depacketizer_sink_ready = 1'd0;
+wire          core_icmp_rx_depacketizer_sink_valid;
+reg           core_icmp_rx_depacketizer_source_last = 1'd0;
+reg           core_icmp_rx_depacketizer_source_last_a = 1'd0;
+reg           core_icmp_rx_depacketizer_source_last_b = 1'd0;
+reg           core_icmp_rx_depacketizer_source_last_s = 1'd0;
+wire   [15:0] core_icmp_rx_depacketizer_source_param_checksum;
+wire    [7:0] core_icmp_rx_depacketizer_source_param_code;
+wire    [7:0] core_icmp_rx_depacketizer_source_param_msgtype;
+wire   [31:0] core_icmp_rx_depacketizer_source_param_quench;
+reg     [7:0] core_icmp_rx_depacketizer_source_payload_data = 8'd0;
+wire          core_icmp_rx_depacketizer_source_payload_error;
+reg           core_icmp_rx_depacketizer_source_payload_last_be = 1'd0;
+reg           core_icmp_rx_depacketizer_source_ready = 1'd0;
+reg           core_icmp_rx_depacketizer_source_valid = 1'd0;
+reg    [63:0] core_icmp_rx_depacketizer_sr = 64'd0;
+reg           core_icmp_rx_depacketizer_sr_shift = 1'd0;
+reg           core_icmp_rx_depacketizer_sr_shift_leftover = 1'd0;
+reg           core_icmp_rx_depacketizer_was_in_copy = 1'd0;
+wire          core_icmp_rx_sink_sink_first;
+wire          core_icmp_rx_sink_sink_last;
+wire   [31:0] core_icmp_rx_sink_sink_param_ip_address;
+wire   [15:0] core_icmp_rx_sink_sink_param_length;
+wire    [7:0] core_icmp_rx_sink_sink_param_protocol;
+wire    [7:0] core_icmp_rx_sink_sink_payload_data;
+wire          core_icmp_rx_sink_sink_payload_error;
+wire          core_icmp_rx_sink_sink_payload_last_be;
+wire          core_icmp_rx_sink_sink_ready;
+wire          core_icmp_rx_sink_sink_valid;
+reg           core_icmp_rx_source_source_first = 1'd0;
+wire          core_icmp_rx_source_source_last;
+wire   [15:0] core_icmp_rx_source_source_param_checksum;
+wire    [7:0] core_icmp_rx_source_source_param_code;
+wire   [31:0] core_icmp_rx_source_source_param_ip_address;
+wire   [15:0] core_icmp_rx_source_source_param_length;
+wire    [7:0] core_icmp_rx_source_source_param_msgtype;
+wire   [31:0] core_icmp_rx_source_source_param_quench;
+wire    [7:0] core_icmp_rx_source_source_payload_data;
+wire          core_icmp_rx_source_source_payload_error;
+wire          core_icmp_rx_source_source_payload_last_be;
+wire          core_icmp_rx_source_source_ready;
+reg           core_icmp_rx_source_source_valid = 1'd0;
+reg     [2:0] core_icmp_tx_packetizer_count = 3'd0;
+reg     [2:0] core_icmp_tx_packetizer_count_fsm0_next_value0 = 3'd0;
+reg           core_icmp_tx_packetizer_count_fsm0_next_value_ce0 = 1'd0;
+reg           core_icmp_tx_packetizer_delayed_last_be = 1'd0;
+reg           core_icmp_tx_packetizer_delayed_last_be_fsm1_next_value0 = 1'd0;
+reg           core_icmp_tx_packetizer_delayed_last_be_fsm1_next_value_ce0 = 1'd0;
+reg           core_icmp_tx_packetizer_fsm_from_idle = 1'd0;
+reg           core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value1 = 1'd0;
+reg           core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value_ce1 = 1'd0;
+reg    [63:0] core_icmp_tx_packetizer_header = 64'd0;
+wire          core_icmp_tx_packetizer_in_data_copy;
+reg           core_icmp_tx_packetizer_is_ongoing0 = 1'd0;
+reg           core_icmp_tx_packetizer_is_ongoing1 = 1'd0;
+reg           core_icmp_tx_packetizer_is_ongoing2 = 1'd0;
+wire          core_icmp_tx_packetizer_new_last_be;
+wire          core_icmp_tx_packetizer_sink_last;
+wire          core_icmp_tx_packetizer_sink_last_be;
+wire   [15:0] core_icmp_tx_packetizer_sink_param_checksum;
+wire    [7:0] core_icmp_tx_packetizer_sink_param_code;
+wire    [7:0] core_icmp_tx_packetizer_sink_param_msgtype;
+wire   [31:0] core_icmp_tx_packetizer_sink_param_quench;
+wire    [7:0] core_icmp_tx_packetizer_sink_payload_data;
+reg           core_icmp_tx_packetizer_sink_payload_error = 1'd0;
+wire          core_icmp_tx_packetizer_sink_payload_last_be;
+reg           core_icmp_tx_packetizer_sink_ready = 1'd0;
+wire          core_icmp_tx_packetizer_sink_valid;
+reg           core_icmp_tx_packetizer_source_first = 1'd0;
+reg           core_icmp_tx_packetizer_source_last = 1'd0;
+reg           core_icmp_tx_packetizer_source_last_a = 1'd0;
+reg           core_icmp_tx_packetizer_source_last_b = 1'd0;
+reg           core_icmp_tx_packetizer_source_last_s = 1'd0;
+reg    [31:0] core_icmp_tx_packetizer_source_param_ip_address = 32'd0;
+reg    [15:0] core_icmp_tx_packetizer_source_param_length = 16'd0;
+reg     [7:0] core_icmp_tx_packetizer_source_param_protocol = 8'd0;
+reg     [7:0] core_icmp_tx_packetizer_source_payload_data = 8'd0;
+wire          core_icmp_tx_packetizer_source_payload_error;
+reg           core_icmp_tx_packetizer_source_payload_last_be = 1'd0;
+reg           core_icmp_tx_packetizer_source_ready = 1'd0;
+reg           core_icmp_tx_packetizer_source_valid = 1'd0;
+reg    [63:0] core_icmp_tx_packetizer_sr = 64'd0;
+reg           core_icmp_tx_packetizer_sr_load = 1'd0;
+reg           core_icmp_tx_packetizer_sr_shift = 1'd0;
+wire          core_icmp_tx_sink_sink_first;
+wire          core_icmp_tx_sink_sink_last;
+wire   [15:0] core_icmp_tx_sink_sink_param_checksum;
+wire    [7:0] core_icmp_tx_sink_sink_param_code;
+wire   [31:0] core_icmp_tx_sink_sink_param_ip_address;
+wire   [15:0] core_icmp_tx_sink_sink_param_length;
+wire    [7:0] core_icmp_tx_sink_sink_param_msgtype;
+wire   [31:0] core_icmp_tx_sink_sink_param_quench;
+wire    [7:0] core_icmp_tx_sink_sink_payload_data;
+wire          core_icmp_tx_sink_sink_payload_error;
+wire          core_icmp_tx_sink_sink_payload_last_be;
+wire          core_icmp_tx_sink_sink_ready;
+wire          core_icmp_tx_sink_sink_valid;
+wire          core_icmp_tx_source_source_first;
+wire          core_icmp_tx_source_source_last;
+reg    [31:0] core_icmp_tx_source_source_param_ip_address = 32'd0;
+reg    [15:0] core_icmp_tx_source_source_param_length = 16'd0;
+reg     [7:0] core_icmp_tx_source_source_param_protocol = 8'd0;
+wire    [7:0] core_icmp_tx_source_source_payload_data;
+wire          core_icmp_tx_source_source_payload_error;
+wire          core_icmp_tx_source_source_payload_last_be;
+wire          core_icmp_tx_source_source_ready;
+reg           core_icmp_tx_source_source_valid = 1'd0;
+wire          core_ip_crossbar_sink_first;
+wire          core_ip_crossbar_sink_last;
+wire   [31:0] core_ip_crossbar_sink_param_ip_address;
+wire   [15:0] core_ip_crossbar_sink_param_length;
+wire    [7:0] core_ip_crossbar_sink_param_protocol;
+wire    [7:0] core_ip_crossbar_sink_payload_data;
+wire          core_ip_crossbar_sink_payload_error;
+wire          core_ip_crossbar_sink_payload_last_be;
+reg           core_ip_crossbar_sink_ready = 1'd0;
+wire          core_ip_crossbar_sink_valid;
+reg           core_ip_crossbar_source_first = 1'd0;
+reg           core_ip_crossbar_source_last = 1'd0;
+reg    [31:0] core_ip_crossbar_source_param_ip_address = 32'd0;
+reg    [15:0] core_ip_crossbar_source_param_length = 16'd0;
+reg     [7:0] core_ip_crossbar_source_param_protocol = 8'd0;
+reg     [7:0] core_ip_crossbar_source_payload_data = 8'd0;
+reg           core_ip_crossbar_source_payload_error = 1'd0;
+reg           core_ip_crossbar_source_payload_last_be = 1'd0;
+wire          core_ip_crossbar_source_ready;
+reg           core_ip_crossbar_source_valid = 1'd0;
+wire          core_ip_mac_port_sink_first;
+wire          core_ip_mac_port_sink_last;
+wire    [7:0] core_ip_mac_port_sink_payload_data;
+wire          core_ip_mac_port_sink_payload_error;
+wire   [15:0] core_ip_mac_port_sink_payload_ethernet_type;
+wire          core_ip_mac_port_sink_payload_last_be;
+wire   [47:0] core_ip_mac_port_sink_payload_sender_mac;
+wire   [47:0] core_ip_mac_port_sink_payload_target_mac;
+reg           core_ip_mac_port_sink_ready = 1'd0;
+wire          core_ip_mac_port_sink_valid;
+reg           core_ip_mac_port_source_first = 1'd0;
+reg           core_ip_mac_port_source_last = 1'd0;
+reg     [7:0] core_ip_mac_port_source_payload_data = 8'd0;
+reg           core_ip_mac_port_source_payload_error = 1'd0;
+reg    [15:0] core_ip_mac_port_source_payload_ethernet_type = 16'd0;
+reg           core_ip_mac_port_source_payload_last_be = 1'd0;
+reg    [47:0] core_ip_mac_port_source_payload_sender_mac = 48'd0;
+reg    [47:0] core_ip_mac_port_source_payload_target_mac = 48'd0;
+wire          core_ip_mac_port_source_ready;
+reg           core_ip_mac_port_source_valid = 1'd0;
+wire          core_ip_port_sink_first;
+wire          core_ip_port_sink_last;
+wire   [31:0] core_ip_port_sink_param_ip_address;
+wire   [15:0] core_ip_port_sink_param_length;
+wire    [7:0] core_ip_port_sink_param_protocol;
+wire    [7:0] core_ip_port_sink_payload_data;
+wire          core_ip_port_sink_payload_error;
+wire          core_ip_port_sink_payload_last_be;
+reg           core_ip_port_sink_ready = 1'd0;
+wire          core_ip_port_sink_valid;
+reg           core_ip_port_source_first = 1'd0;
+reg           core_ip_port_source_last = 1'd0;
+reg    [31:0] core_ip_port_source_param_ip_address = 32'd0;
+reg    [15:0] core_ip_port_source_param_length = 16'd0;
+reg     [7:0] core_ip_port_source_param_protocol = 8'd0;
+reg     [7:0] core_ip_port_source_payload_data = 8'd0;
+reg           core_ip_port_source_payload_error = 1'd0;
+reg           core_ip_port_source_payload_last_be = 1'd0;
+wire          core_ip_port_source_ready;
+reg           core_ip_port_source_valid = 1'd0;
+wire          core_ip_rx_ce;
+reg     [4:0] core_ip_rx_depacketizer_count = 5'd0;
+reg     [4:0] core_ip_rx_depacketizer_count_liteethip_fsm0_next_value2 = 5'd0;
+reg           core_ip_rx_depacketizer_count_liteethip_fsm0_next_value_ce2 = 1'd0;
+reg           core_ip_rx_depacketizer_delayed_last_be = 1'd0;
+reg           core_ip_rx_depacketizer_delayed_last_be_liteethip_fsm1_next_value1 = 1'd0;
+reg           core_ip_rx_depacketizer_delayed_last_be_liteethip_fsm1_next_value_ce1 = 1'd0;
+reg           core_ip_rx_depacketizer_fsm_from_idle = 1'd0;
+reg           core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value3 = 1'd0;
+reg           core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value_ce3 = 1'd0;
+wire  [159:0] core_ip_rx_depacketizer_header;
+wire          core_ip_rx_depacketizer_is_in_copy;
+reg           core_ip_rx_depacketizer_is_ongoing0 = 1'd0;
+reg           core_ip_rx_depacketizer_is_ongoing1 = 1'd0;
+reg           core_ip_rx_depacketizer_is_ongoing2 = 1'd0;
+reg           core_ip_rx_depacketizer_is_ongoing3 = 1'd0;
+wire          core_ip_rx_depacketizer_new_last_be;
+reg           core_ip_rx_depacketizer_sink_d_last = 1'd0;
 wire          core_ip_rx_depacketizer_sink_first;
 wire          core_ip_rx_depacketizer_sink_last;
+wire          core_ip_rx_depacketizer_sink_last_be;
+wire    [7:0] core_ip_rx_depacketizer_sink_payload_data;
+wire          core_ip_rx_depacketizer_sink_payload_error;
 wire   [15:0] core_ip_rx_depacketizer_sink_payload_ethernet_type;
+wire          core_ip_rx_depacketizer_sink_payload_last_be;
 wire   [47:0] core_ip_rx_depacketizer_sink_payload_sender_mac;
 wire   [47:0] core_ip_rx_depacketizer_sink_payload_target_mac;
-wire    [7:0] core_ip_rx_depacketizer_sink_payload_data;
-wire          core_ip_rx_depacketizer_sink_payload_last_be;
-wire          core_ip_rx_depacketizer_sink_payload_error;
-reg           core_ip_rx_depacketizer_source_valid = 1'd0;
-reg           core_ip_rx_depacketizer_source_ready = 1'd0;
+reg           core_ip_rx_depacketizer_sink_ready = 1'd0;
+wire          core_ip_rx_depacketizer_sink_valid;
 reg           core_ip_rx_depacketizer_source_last = 1'd0;
-reg     [7:0] core_ip_rx_depacketizer_source_payload_data = 8'd0;
-reg           core_ip_rx_depacketizer_source_payload_last_be = 1'd0;
-wire          core_ip_rx_depacketizer_source_payload_error;
+reg           core_ip_rx_depacketizer_source_last_a = 1'd0;
+reg           core_ip_rx_depacketizer_source_last_b = 1'd0;
+reg           core_ip_rx_depacketizer_source_last_s = 1'd0;
 wire   [15:0] core_ip_rx_depacketizer_source_param_checksum;
 wire   [15:0] core_ip_rx_depacketizer_source_param_identification;
 wire    [3:0] core_ip_rx_depacketizer_source_param_ihl;
@@ -925,1226 +929,1034 @@ wire   [31:0] core_ip_rx_depacketizer_source_param_target_ip;
 wire   [15:0] core_ip_rx_depacketizer_source_param_total_length;
 wire    [7:0] core_ip_rx_depacketizer_source_param_ttl;
 wire    [3:0] core_ip_rx_depacketizer_source_param_version;
-wire  [159:0] core_ip_rx_depacketizer_header;
+reg     [7:0] core_ip_rx_depacketizer_source_payload_data = 8'd0;
+wire          core_ip_rx_depacketizer_source_payload_error;
+reg           core_ip_rx_depacketizer_source_payload_last_be = 1'd0;
+reg           core_ip_rx_depacketizer_source_ready = 1'd0;
+reg           core_ip_rx_depacketizer_source_valid = 1'd0;
 reg   [159:0] core_ip_rx_depacketizer_sr = 160'd0;
 reg           core_ip_rx_depacketizer_sr_shift = 1'd0;
 reg           core_ip_rx_depacketizer_sr_shift_leftover = 1'd0;
-reg     [4:0] core_ip_rx_depacketizer_count = 5'd0;
-reg           core_ip_rx_depacketizer_sink_d_last = 1'd0;
-reg           core_ip_rx_depacketizer_source_last_a = 1'd0;
-reg           core_ip_rx_depacketizer_source_last_b = 1'd0;
-reg           core_ip_rx_depacketizer_source_last_s = 1'd0;
-reg           core_ip_rx_depacketizer_fsm_from_idle = 1'd0;
-wire          core_ip_rx_depacketizer_sink_last_be;
-wire          core_ip_rx_depacketizer_new_last_be;
-reg           core_ip_rx_depacketizer_delayed_last_be = 1'd0;
-wire          core_ip_rx_depacketizer_is_in_copy;
 reg           core_ip_rx_depacketizer_was_in_copy = 1'd0;
-reg           core_ip_rx_depacketizer_is_ongoing0 = 1'd0;
-reg           core_ip_rx_depacketizer_is_ongoing1 = 1'd0;
-reg           core_ip_rx_depacketizer_is_ongoing2 = 1'd0;
-reg           core_ip_rx_depacketizer_is_ongoing3 = 1'd0;
-wire  [159:0] core_ip_rx_liteethipv4checksum_header;
-wire   [15:0] core_ip_rx_liteethipv4checksum_value;
-wire          core_ip_rx_liteethipv4checksum_done;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r = 17'd0;
-wire   [16:0] core_ip_rx_liteethipv4checksum_s_next0;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r_next0 = 17'd0;
 reg           core_ip_rx_liteethipv4checksum0 = 1'd0;
-wire   [16:0] core_ip_rx_liteethipv4checksum_s_next1;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r_next1 = 17'd0;
 reg           core_ip_rx_liteethipv4checksum1 = 1'd0;
-wire   [16:0] core_ip_rx_liteethipv4checksum_s_next2;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r_next2 = 17'd0;
 reg           core_ip_rx_liteethipv4checksum2 = 1'd0;
-wire   [16:0] core_ip_rx_liteethipv4checksum_s_next3;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r_next3 = 17'd0;
 reg           core_ip_rx_liteethipv4checksum3 = 1'd0;
-wire   [16:0] core_ip_rx_liteethipv4checksum_s_next4;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r_next4 = 17'd0;
 reg           core_ip_rx_liteethipv4checksum4 = 1'd0;
-wire   [16:0] core_ip_rx_liteethipv4checksum_s_next5;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r_next5 = 17'd0;
 reg           core_ip_rx_liteethipv4checksum5 = 1'd0;
-wire   [16:0] core_ip_rx_liteethipv4checksum_s_next6;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r_next6 = 17'd0;
 reg           core_ip_rx_liteethipv4checksum6 = 1'd0;
-wire   [16:0] core_ip_rx_liteethipv4checksum_s_next7;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r_next7 = 17'd0;
 reg           core_ip_rx_liteethipv4checksum7 = 1'd0;
-wire   [16:0] core_ip_rx_liteethipv4checksum_s_next8;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r_next8 = 17'd0;
 reg           core_ip_rx_liteethipv4checksum8 = 1'd0;
-wire   [16:0] core_ip_rx_liteethipv4checksum_s_next9;
-reg    [16:0] core_ip_rx_liteethipv4checksum_r_next9 = 17'd0;
 reg           core_ip_rx_liteethipv4checksum9 = 1'd0;
 reg     [3:0] core_ip_rx_liteethipv4checksum_counter = 4'd0;
 wire          core_ip_rx_liteethipv4checksum_counter_ce;
-wire          core_ip_rx_ce;
+wire          core_ip_rx_liteethipv4checksum_done;
+wire  [159:0] core_ip_rx_liteethipv4checksum_header;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r = 17'd0;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r_next0 = 17'd0;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r_next1 = 17'd0;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r_next2 = 17'd0;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r_next3 = 17'd0;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r_next4 = 17'd0;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r_next5 = 17'd0;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r_next6 = 17'd0;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r_next7 = 17'd0;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r_next8 = 17'd0;
+reg    [16:0] core_ip_rx_liteethipv4checksum_r_next9 = 17'd0;
+wire   [16:0] core_ip_rx_liteethipv4checksum_s_next0;
+wire   [16:0] core_ip_rx_liteethipv4checksum_s_next1;
+wire   [16:0] core_ip_rx_liteethipv4checksum_s_next2;
+wire   [16:0] core_ip_rx_liteethipv4checksum_s_next3;
+wire   [16:0] core_ip_rx_liteethipv4checksum_s_next4;
+wire   [16:0] core_ip_rx_liteethipv4checksum_s_next5;
+wire   [16:0] core_ip_rx_liteethipv4checksum_s_next6;
+wire   [16:0] core_ip_rx_liteethipv4checksum_s_next7;
+wire   [16:0] core_ip_rx_liteethipv4checksum_s_next8;
+wire   [16:0] core_ip_rx_liteethipv4checksum_s_next9;
+wire   [15:0] core_ip_rx_liteethipv4checksum_value;
 wire          core_ip_rx_reset;
-wire          core_ip_mac_port_sink_valid;
-reg           core_ip_mac_port_sink_ready = 1'd0;
-wire          core_ip_mac_port_sink_first;
-wire          core_ip_mac_port_sink_last;
-wire   [15:0] core_ip_mac_port_sink_payload_ethernet_type;
-wire   [47:0] core_ip_mac_port_sink_payload_sender_mac;
-wire   [47:0] core_ip_mac_port_sink_payload_target_mac;
-wire    [7:0] core_ip_mac_port_sink_payload_data;
-wire          core_ip_mac_port_sink_payload_last_be;
-wire          core_ip_mac_port_sink_payload_error;
-reg           core_ip_mac_port_source_valid = 1'd0;
-wire          core_ip_mac_port_source_ready;
-reg           core_ip_mac_port_source_first = 1'd0;
-reg           core_ip_mac_port_source_last = 1'd0;
-reg    [15:0] core_ip_mac_port_source_payload_ethernet_type = 16'd0;
-reg    [47:0] core_ip_mac_port_source_payload_sender_mac = 48'd0;
-reg    [47:0] core_ip_mac_port_source_payload_target_mac = 48'd0;
-reg     [7:0] core_ip_mac_port_source_payload_data = 8'd0;
-reg           core_ip_mac_port_source_payload_last_be = 1'd0;
-reg           core_ip_mac_port_source_payload_error = 1'd0;
-reg           core_ip_crossbar_source_valid = 1'd0;
-wire          core_ip_crossbar_source_ready;
-reg           core_ip_crossbar_source_first = 1'd0;
-reg           core_ip_crossbar_source_last = 1'd0;
-reg     [7:0] core_ip_crossbar_source_payload_data = 8'd0;
-reg           core_ip_crossbar_source_payload_last_be = 1'd0;
-reg           core_ip_crossbar_source_payload_error = 1'd0;
-reg    [15:0] core_ip_crossbar_source_param_length = 16'd0;
-reg     [7:0] core_ip_crossbar_source_param_protocol = 8'd0;
-reg    [31:0] core_ip_crossbar_source_param_ip_address = 32'd0;
-wire          core_ip_crossbar_sink_valid;
-reg           core_ip_crossbar_sink_ready = 1'd0;
-wire          core_ip_crossbar_sink_first;
-wire          core_ip_crossbar_sink_last;
-wire    [7:0] core_ip_crossbar_sink_payload_data;
-wire          core_ip_crossbar_sink_payload_last_be;
-wire          core_ip_crossbar_sink_payload_error;
-wire   [15:0] core_ip_crossbar_sink_param_length;
-wire    [7:0] core_ip_crossbar_sink_param_protocol;
-wire   [31:0] core_ip_crossbar_sink_param_ip_address;
-wire          core_icmp_tx_sink_sink_valid;
-wire          core_icmp_tx_sink_sink_ready;
-wire          core_icmp_tx_sink_sink_first;
-wire          core_icmp_tx_sink_sink_last;
-wire    [7:0] core_icmp_tx_sink_sink_payload_data;
-wire          core_icmp_tx_sink_sink_payload_last_be;
-wire          core_icmp_tx_sink_sink_payload_error;
-wire   [15:0] core_icmp_tx_sink_sink_param_checksum;
-wire    [7:0] core_icmp_tx_sink_sink_param_code;
-wire    [7:0] core_icmp_tx_sink_sink_param_msgtype;
-wire   [31:0] core_icmp_tx_sink_sink_param_quench;
-wire   [31:0] core_icmp_tx_sink_sink_param_ip_address;
-wire   [15:0] core_icmp_tx_sink_sink_param_length;
-reg           core_icmp_tx_source_source_valid = 1'd0;
-wire          core_icmp_tx_source_source_ready;
-wire          core_icmp_tx_source_source_first;
-wire          core_icmp_tx_source_source_last;
-wire    [7:0] core_icmp_tx_source_source_payload_data;
-wire          core_icmp_tx_source_source_payload_last_be;
-wire          core_icmp_tx_source_source_payload_error;
-reg    [15:0] core_icmp_tx_source_source_param_length = 16'd0;
-reg     [7:0] core_icmp_tx_source_source_param_protocol = 8'd0;
-reg    [31:0] core_icmp_tx_source_source_param_ip_address = 32'd0;
-wire          core_icmp_tx_packetizer_sink_valid;
-reg           core_icmp_tx_packetizer_sink_ready = 1'd0;
-wire          core_icmp_tx_packetizer_sink_last;
-wire    [7:0] core_icmp_tx_packetizer_sink_payload_data;
-wire          core_icmp_tx_packetizer_sink_payload_last_be;
-reg           core_icmp_tx_packetizer_sink_payload_error = 1'd0;
-wire   [15:0] core_icmp_tx_packetizer_sink_param_checksum;
-wire    [7:0] core_icmp_tx_packetizer_sink_param_code;
-wire    [7:0] core_icmp_tx_packetizer_sink_param_msgtype;
-wire   [31:0] core_icmp_tx_packetizer_sink_param_quench;
-reg           core_icmp_tx_packetizer_source_valid = 1'd0;
-reg           core_icmp_tx_packetizer_source_ready = 1'd0;
-reg           core_icmp_tx_packetizer_source_first = 1'd0;
-reg           core_icmp_tx_packetizer_source_last = 1'd0;
-reg     [7:0] core_icmp_tx_packetizer_source_payload_data = 8'd0;
-reg           core_icmp_tx_packetizer_source_payload_last_be = 1'd0;
-wire          core_icmp_tx_packetizer_source_payload_error;
-reg    [15:0] core_icmp_tx_packetizer_source_param_length = 16'd0;
-reg     [7:0] core_icmp_tx_packetizer_source_param_protocol = 8'd0;
-reg    [31:0] core_icmp_tx_packetizer_source_param_ip_address = 32'd0;
-reg    [63:0] core_icmp_tx_packetizer_header = 64'd0;
-reg    [63:0] core_icmp_tx_packetizer_sr = 64'd0;
-reg           core_icmp_tx_packetizer_sr_load = 1'd0;
-reg           core_icmp_tx_packetizer_sr_shift = 1'd0;
-reg     [2:0] core_icmp_tx_packetizer_count = 3'd0;
-reg           core_icmp_tx_packetizer_source_last_a = 1'd0;
-reg           core_icmp_tx_packetizer_source_last_b = 1'd0;
-reg           core_icmp_tx_packetizer_source_last_s = 1'd0;
-reg           core_icmp_tx_packetizer_fsm_from_idle = 1'd0;
-wire          core_icmp_tx_packetizer_sink_last_be;
-wire          core_icmp_tx_packetizer_new_last_be;
-reg           core_icmp_tx_packetizer_delayed_last_be = 1'd0;
-wire          core_icmp_tx_packetizer_in_data_copy;
-reg           core_icmp_tx_packetizer_is_ongoing0 = 1'd0;
-reg           core_icmp_tx_packetizer_is_ongoing1 = 1'd0;
-reg           core_icmp_tx_packetizer_is_ongoing2 = 1'd0;
-wire          core_icmp_rx_sink_sink_valid;
-wire          core_icmp_rx_sink_sink_ready;
-wire          core_icmp_rx_sink_sink_first;
-wire          core_icmp_rx_sink_sink_last;
-wire    [7:0] core_icmp_rx_sink_sink_payload_data;
-wire          core_icmp_rx_sink_sink_payload_last_be;
-wire          core_icmp_rx_sink_sink_payload_error;
-wire   [15:0] core_icmp_rx_sink_sink_param_length;
-wire    [7:0] core_icmp_rx_sink_sink_param_protocol;
-wire   [31:0] core_icmp_rx_sink_sink_param_ip_address;
-reg           core_icmp_rx_source_source_valid = 1'd0;
-wire          core_icmp_rx_source_source_ready;
-reg           core_icmp_rx_source_source_first = 1'd0;
-wire          core_icmp_rx_source_source_last;
-wire    [7:0] core_icmp_rx_source_source_payload_data;
-wire          core_icmp_rx_source_source_payload_last_be;
-wire          core_icmp_rx_source_source_payload_error;
-wire   [15:0] core_icmp_rx_source_source_param_checksum;
-wire    [7:0] core_icmp_rx_source_source_param_code;
-wire    [7:0] core_icmp_rx_source_source_param_msgtype;
-wire   [31:0] core_icmp_rx_source_source_param_quench;
-wire   [31:0] core_icmp_rx_source_source_param_ip_address;
-wire   [15:0] core_icmp_rx_source_source_param_length;
-wire          core_icmp_rx_depacketizer_sink_valid;
-reg           core_icmp_rx_depacketizer_sink_ready = 1'd0;
-wire          core_icmp_rx_depacketizer_sink_first;
-wire          core_icmp_rx_depacketizer_sink_last;
-wire    [7:0] core_icmp_rx_depacketizer_sink_payload_data;
-wire          core_icmp_rx_depacketizer_sink_payload_last_be;
-wire          core_icmp_rx_depacketizer_sink_payload_error;
-wire   [15:0] core_icmp_rx_depacketizer_sink_param_length;
-wire    [7:0] core_icmp_rx_depacketizer_sink_param_protocol;
-wire   [31:0] core_icmp_rx_depacketizer_sink_param_ip_address;
-reg           core_icmp_rx_depacketizer_source_valid = 1'd0;
-reg           core_icmp_rx_depacketizer_source_ready = 1'd0;
-reg           core_icmp_rx_depacketizer_source_last = 1'd0;
-reg     [7:0] core_icmp_rx_depacketizer_source_payload_data = 8'd0;
-reg           core_icmp_rx_depacketizer_source_payload_last_be = 1'd0;
-wire          core_icmp_rx_depacketizer_source_payload_error;
-wire   [15:0] core_icmp_rx_depacketizer_source_param_checksum;
-wire    [7:0] core_icmp_rx_depacketizer_source_param_code;
-wire    [7:0] core_icmp_rx_depacketizer_source_param_msgtype;
-wire   [31:0] core_icmp_rx_depacketizer_source_param_quench;
-wire   [63:0] core_icmp_rx_depacketizer_header;
-reg    [63:0] core_icmp_rx_depacketizer_sr = 64'd0;
-reg           core_icmp_rx_depacketizer_sr_shift = 1'd0;
-reg           core_icmp_rx_depacketizer_sr_shift_leftover = 1'd0;
-reg     [2:0] core_icmp_rx_depacketizer_count = 3'd0;
-reg           core_icmp_rx_depacketizer_sink_d_last = 1'd0;
-reg           core_icmp_rx_depacketizer_source_last_a = 1'd0;
-reg           core_icmp_rx_depacketizer_source_last_b = 1'd0;
-reg           core_icmp_rx_depacketizer_source_last_s = 1'd0;
-reg           core_icmp_rx_depacketizer_fsm_from_idle = 1'd0;
-wire          core_icmp_rx_depacketizer_sink_last_be;
-wire          core_icmp_rx_depacketizer_new_last_be;
-reg           core_icmp_rx_depacketizer_delayed_last_be = 1'd0;
-wire          core_icmp_rx_depacketizer_is_in_copy;
-reg           core_icmp_rx_depacketizer_was_in_copy = 1'd0;
-reg           core_icmp_rx_depacketizer_is_ongoing0 = 1'd0;
-reg           core_icmp_rx_depacketizer_is_ongoing1 = 1'd0;
-reg           core_icmp_rx_depacketizer_is_ongoing2 = 1'd0;
-reg           core_icmp_rx_depacketizer_is_ongoing3 = 1'd0;
-wire          core_icmp_echo_sink_valid;
-wire          core_icmp_echo_sink_ready;
-wire          core_icmp_echo_sink_first;
-wire          core_icmp_echo_sink_last;
-wire    [7:0] core_icmp_echo_sink_payload_data;
-wire          core_icmp_echo_sink_payload_last_be;
-wire          core_icmp_echo_sink_payload_error;
-wire   [15:0] core_icmp_echo_sink_param_checksum;
-wire    [7:0] core_icmp_echo_sink_param_code;
-wire    [7:0] core_icmp_echo_sink_param_msgtype;
-wire   [31:0] core_icmp_echo_sink_param_quench;
-wire   [31:0] core_icmp_echo_sink_param_ip_address;
-wire   [15:0] core_icmp_echo_sink_param_length;
-wire          core_icmp_echo_source_valid;
-wire          core_icmp_echo_source_ready;
-wire          core_icmp_echo_source_first;
-wire          core_icmp_echo_source_last;
-wire    [7:0] core_icmp_echo_source_payload_data;
-wire          core_icmp_echo_source_payload_last_be;
-wire          core_icmp_echo_source_payload_error;
-wire   [15:0] core_icmp_echo_source_param_checksum;
-wire    [7:0] core_icmp_echo_source_param_code;
-reg     [7:0] core_icmp_echo_source_param_msgtype = 8'd0;
-wire   [31:0] core_icmp_echo_source_param_quench;
-wire   [31:0] core_icmp_echo_source_param_ip_address;
-wire   [15:0] core_icmp_echo_source_param_length;
-wire          core_icmp_echo_sink_sink_valid;
-wire          core_icmp_echo_sink_sink_ready;
-wire          core_icmp_echo_sink_sink_first;
-wire          core_icmp_echo_sink_sink_last;
-wire    [7:0] core_icmp_echo_sink_sink_payload_data;
-wire          core_icmp_echo_sink_sink_payload_last_be;
-wire          core_icmp_echo_sink_sink_payload_error;
-wire   [15:0] core_icmp_echo_sink_sink_param_checksum;
-wire    [7:0] core_icmp_echo_sink_sink_param_code;
-wire    [7:0] core_icmp_echo_sink_sink_param_msgtype;
-wire   [31:0] core_icmp_echo_sink_sink_param_quench;
-wire   [31:0] core_icmp_echo_sink_sink_param_ip_address;
-wire   [15:0] core_icmp_echo_sink_sink_param_length;
-wire          core_icmp_echo_source_source_valid;
-wire          core_icmp_echo_source_source_ready;
-reg           core_icmp_echo_source_source_first = 1'd0;
-wire          core_icmp_echo_source_source_last;
-wire    [7:0] core_icmp_echo_source_source_payload_data;
-wire          core_icmp_echo_source_source_payload_last_be;
-wire          core_icmp_echo_source_source_payload_error;
-wire   [15:0] core_icmp_echo_source_source_param_checksum;
-wire    [7:0] core_icmp_echo_source_source_param_code;
-wire    [7:0] core_icmp_echo_source_source_param_msgtype;
-wire   [31:0] core_icmp_echo_source_source_param_quench;
-wire   [31:0] core_icmp_echo_source_source_param_ip_address;
-wire   [15:0] core_icmp_echo_source_source_param_length;
-wire          core_icmp_echo_payload_fifo_sink_valid;
-wire          core_icmp_echo_payload_fifo_sink_ready;
-reg           core_icmp_echo_payload_fifo_sink_first = 1'd0;
-wire          core_icmp_echo_payload_fifo_sink_last;
-wire    [7:0] core_icmp_echo_payload_fifo_sink_payload_data;
-wire          core_icmp_echo_payload_fifo_sink_payload_last_be;
-wire          core_icmp_echo_payload_fifo_sink_payload_error;
-wire          core_icmp_echo_payload_fifo_source_valid;
-wire          core_icmp_echo_payload_fifo_source_ready;
-wire          core_icmp_echo_payload_fifo_source_first;
-wire          core_icmp_echo_payload_fifo_source_last;
-wire    [7:0] core_icmp_echo_payload_fifo_source_payload_data;
-wire          core_icmp_echo_payload_fifo_source_payload_last_be;
-wire          core_icmp_echo_payload_fifo_source_payload_error;
-wire          core_icmp_echo_payload_fifo_re;
-reg           core_icmp_echo_payload_fifo_readable = 1'd0;
-wire          core_icmp_echo_payload_fifo_syncfifo_we;
-wire          core_icmp_echo_payload_fifo_syncfifo_writable;
-wire          core_icmp_echo_payload_fifo_syncfifo_re;
-wire          core_icmp_echo_payload_fifo_syncfifo_readable;
-wire   [11:0] core_icmp_echo_payload_fifo_syncfifo_din;
-wire   [11:0] core_icmp_echo_payload_fifo_syncfifo_dout;
-reg     [7:0] core_icmp_echo_payload_fifo_level0 = 8'd0;
-reg           core_icmp_echo_payload_fifo_replace = 1'd0;
-reg     [6:0] core_icmp_echo_payload_fifo_produce = 7'd0;
-reg     [6:0] core_icmp_echo_payload_fifo_consume = 7'd0;
-reg     [6:0] core_icmp_echo_payload_fifo_wrport_adr = 7'd0;
-wire   [11:0] core_icmp_echo_payload_fifo_wrport_dat_r;
-wire          core_icmp_echo_payload_fifo_wrport_we;
-wire   [11:0] core_icmp_echo_payload_fifo_wrport_dat_w;
-wire          core_icmp_echo_payload_fifo_do_read;
-wire    [6:0] core_icmp_echo_payload_fifo_rdport_adr;
-wire   [11:0] core_icmp_echo_payload_fifo_rdport_dat_r;
-wire          core_icmp_echo_payload_fifo_rdport_re;
-wire    [7:0] core_icmp_echo_payload_fifo_level1;
-wire    [7:0] core_icmp_echo_payload_fifo_fifo_in_payload_data;
-wire          core_icmp_echo_payload_fifo_fifo_in_payload_last_be;
-wire          core_icmp_echo_payload_fifo_fifo_in_payload_error;
-wire          core_icmp_echo_payload_fifo_fifo_in_first;
-wire          core_icmp_echo_payload_fifo_fifo_in_last;
-wire    [7:0] core_icmp_echo_payload_fifo_fifo_out_payload_data;
-wire          core_icmp_echo_payload_fifo_fifo_out_payload_last_be;
-wire          core_icmp_echo_payload_fifo_fifo_out_payload_error;
-wire          core_icmp_echo_payload_fifo_fifo_out_first;
-wire          core_icmp_echo_payload_fifo_fifo_out_last;
-wire          core_icmp_echo_param_fifo_sink_valid;
-wire          core_icmp_echo_param_fifo_sink_ready;
-reg           core_icmp_echo_param_fifo_sink_first = 1'd0;
-reg           core_icmp_echo_param_fifo_sink_last = 1'd0;
-wire   [15:0] core_icmp_echo_param_fifo_sink_param_checksum;
-wire    [7:0] core_icmp_echo_param_fifo_sink_param_code;
-wire    [7:0] core_icmp_echo_param_fifo_sink_param_msgtype;
-wire   [31:0] core_icmp_echo_param_fifo_sink_param_quench;
-wire   [31:0] core_icmp_echo_param_fifo_sink_param_ip_address;
-wire   [15:0] core_icmp_echo_param_fifo_sink_param_length;
-wire          core_icmp_echo_param_fifo_source_valid;
-wire          core_icmp_echo_param_fifo_source_ready;
-wire          core_icmp_echo_param_fifo_source_first;
-wire          core_icmp_echo_param_fifo_source_last;
-wire   [15:0] core_icmp_echo_param_fifo_source_param_checksum;
-wire    [7:0] core_icmp_echo_param_fifo_source_param_code;
-wire    [7:0] core_icmp_echo_param_fifo_source_param_msgtype;
-wire   [31:0] core_icmp_echo_param_fifo_source_param_quench;
-wire   [31:0] core_icmp_echo_param_fifo_source_param_ip_address;
-wire   [15:0] core_icmp_echo_param_fifo_source_param_length;
-wire          core_icmp_echo_param_fifo_re;
-reg           core_icmp_echo_param_fifo_readable = 1'd0;
-wire          core_icmp_echo_param_fifo_syncfifo_we;
-wire          core_icmp_echo_param_fifo_syncfifo_writable;
-wire          core_icmp_echo_param_fifo_syncfifo_re;
-wire          core_icmp_echo_param_fifo_syncfifo_readable;
-wire  [113:0] core_icmp_echo_param_fifo_syncfifo_din;
-wire  [113:0] core_icmp_echo_param_fifo_syncfifo_dout;
-reg     [1:0] core_icmp_echo_param_fifo_level0 = 2'd0;
-reg           core_icmp_echo_param_fifo_replace = 1'd0;
-reg           core_icmp_echo_param_fifo_produce = 1'd0;
-reg           core_icmp_echo_param_fifo_consume = 1'd0;
-reg           core_icmp_echo_param_fifo_wrport_adr = 1'd0;
-wire  [113:0] core_icmp_echo_param_fifo_wrport_dat_r;
-wire          core_icmp_echo_param_fifo_wrport_we;
-wire  [113:0] core_icmp_echo_param_fifo_wrport_dat_w;
-wire          core_icmp_echo_param_fifo_do_read;
-wire          core_icmp_echo_param_fifo_rdport_adr;
-wire  [113:0] core_icmp_echo_param_fifo_rdport_dat_r;
-wire          core_icmp_echo_param_fifo_rdport_re;
-wire    [1:0] core_icmp_echo_param_fifo_level1;
-wire   [15:0] core_icmp_echo_param_fifo_fifo_in_param_checksum;
-wire    [7:0] core_icmp_echo_param_fifo_fifo_in_param_code;
-wire    [7:0] core_icmp_echo_param_fifo_fifo_in_param_msgtype;
-wire   [31:0] core_icmp_echo_param_fifo_fifo_in_param_quench;
-wire   [31:0] core_icmp_echo_param_fifo_fifo_in_param_ip_address;
-wire   [15:0] core_icmp_echo_param_fifo_fifo_in_param_length;
-wire          core_icmp_echo_param_fifo_fifo_in_first;
-wire          core_icmp_echo_param_fifo_fifo_in_last;
-wire   [15:0] core_icmp_echo_param_fifo_fifo_out_param_checksum;
-wire    [7:0] core_icmp_echo_param_fifo_fifo_out_param_code;
-wire    [7:0] core_icmp_echo_param_fifo_fifo_out_param_msgtype;
-wire   [31:0] core_icmp_echo_param_fifo_fifo_out_param_quench;
-wire   [31:0] core_icmp_echo_param_fifo_fifo_out_param_ip_address;
-wire   [15:0] core_icmp_echo_param_fifo_fifo_out_param_length;
-wire          core_icmp_echo_param_fifo_fifo_out_first;
-wire          core_icmp_echo_param_fifo_fifo_out_last;
-wire          core_icmp_ip_port_sink_valid;
-reg           core_icmp_ip_port_sink_ready = 1'd0;
-wire          core_icmp_ip_port_sink_first;
-wire          core_icmp_ip_port_sink_last;
-wire    [7:0] core_icmp_ip_port_sink_payload_data;
-wire          core_icmp_ip_port_sink_payload_last_be;
-wire          core_icmp_ip_port_sink_payload_error;
-wire   [15:0] core_icmp_ip_port_sink_param_length;
-wire    [7:0] core_icmp_ip_port_sink_param_protocol;
-wire   [31:0] core_icmp_ip_port_sink_param_ip_address;
-reg           core_icmp_ip_port_source_valid = 1'd0;
-wire          core_icmp_ip_port_source_ready;
-reg           core_icmp_ip_port_source_first = 1'd0;
-reg           core_icmp_ip_port_source_last = 1'd0;
-reg     [7:0] core_icmp_ip_port_source_payload_data = 8'd0;
-reg           core_icmp_ip_port_source_payload_last_be = 1'd0;
-reg           core_icmp_ip_port_source_payload_error = 1'd0;
-reg    [15:0] core_icmp_ip_port_source_param_length = 16'd0;
-reg     [7:0] core_icmp_ip_port_source_param_protocol = 8'd0;
-reg    [31:0] core_icmp_ip_port_source_param_ip_address = 32'd0;
-wire          core_tx_sink_sink_valid;
-wire          core_tx_sink_sink_ready;
-wire          core_tx_sink_sink_first;
-wire          core_tx_sink_sink_last;
-wire    [7:0] core_tx_sink_sink_payload_data;
-wire          core_tx_sink_sink_payload_last_be;
-wire          core_tx_sink_sink_payload_error;
-wire   [15:0] core_tx_sink_sink_param_src_port;
-wire   [15:0] core_tx_sink_sink_param_dst_port;
-wire   [31:0] core_tx_sink_sink_param_ip_address;
-wire   [15:0] core_tx_sink_sink_param_length;
-reg           core_tx_source_source_valid = 1'd0;
-wire          core_tx_source_source_ready;
-reg           core_tx_source_source_first = 1'd0;
-reg           core_tx_source_source_last = 1'd0;
-reg     [7:0] core_tx_source_source_payload_data = 8'd0;
-reg           core_tx_source_source_payload_last_be = 1'd0;
-reg           core_tx_source_source_payload_error = 1'd0;
-reg    [15:0] core_tx_source_source_param_length = 16'd0;
-reg     [7:0] core_tx_source_source_param_protocol = 8'd0;
-reg    [31:0] core_tx_source_source_param_ip_address = 32'd0;
-wire          core_tx_packetizer_sink_valid;
-reg           core_tx_packetizer_sink_ready = 1'd0;
-wire          core_tx_packetizer_sink_last;
-wire    [7:0] core_tx_packetizer_sink_payload_data;
-wire          core_tx_packetizer_sink_payload_last_be;
-reg           core_tx_packetizer_sink_payload_error = 1'd0;
-wire   [15:0] core_tx_packetizer_sink_param_checksum;
-wire   [15:0] core_tx_packetizer_sink_param_dst_port;
-wire   [15:0] core_tx_packetizer_sink_param_length;
-wire   [15:0] core_tx_packetizer_sink_param_src_port;
-reg           core_tx_packetizer_source_valid = 1'd0;
-reg           core_tx_packetizer_source_ready = 1'd0;
-reg           core_tx_packetizer_source_first = 1'd0;
-reg           core_tx_packetizer_source_last = 1'd0;
-reg     [7:0] core_tx_packetizer_source_payload_data = 8'd0;
-reg           core_tx_packetizer_source_payload_last_be = 1'd0;
-wire          core_tx_packetizer_source_payload_error;
-reg    [15:0] core_tx_packetizer_source_param_length = 16'd0;
-reg     [7:0] core_tx_packetizer_source_param_protocol = 8'd0;
-reg    [31:0] core_tx_packetizer_source_param_ip_address = 32'd0;
-reg    [63:0] core_tx_packetizer_header = 64'd0;
-reg    [63:0] core_tx_packetizer_sr = 64'd0;
-reg           core_tx_packetizer_sr_load = 1'd0;
-reg           core_tx_packetizer_sr_shift = 1'd0;
-reg     [2:0] core_tx_packetizer_count = 3'd0;
-reg           core_tx_packetizer_source_last_a = 1'd0;
-reg           core_tx_packetizer_source_last_b = 1'd0;
-reg           core_tx_packetizer_source_last_s = 1'd0;
-reg           core_tx_packetizer_fsm_from_idle = 1'd0;
-wire          core_tx_packetizer_sink_last_be;
-wire          core_tx_packetizer_new_last_be;
-reg           core_tx_packetizer_delayed_last_be = 1'd0;
-wire          core_tx_packetizer_in_data_copy;
-reg           core_tx_packetizer_is_ongoing0 = 1'd0;
-reg           core_tx_packetizer_is_ongoing1 = 1'd0;
-reg           core_tx_packetizer_is_ongoing2 = 1'd0;
-wire          core_rx_sink_sink_valid;
-wire          core_rx_sink_sink_ready;
-wire          core_rx_sink_sink_first;
-wire          core_rx_sink_sink_last;
-wire    [7:0] core_rx_sink_sink_payload_data;
-wire          core_rx_sink_sink_payload_last_be;
-wire          core_rx_sink_sink_payload_error;
-wire   [15:0] core_rx_sink_sink_param_length;
-wire    [7:0] core_rx_sink_sink_param_protocol;
-wire   [31:0] core_rx_sink_sink_param_ip_address;
-reg           core_rx_source_source_valid = 1'd0;
-wire          core_rx_source_source_ready;
-reg           core_rx_source_source_first = 1'd0;
-reg           core_rx_source_source_last = 1'd0;
-wire    [7:0] core_rx_source_source_payload_data;
-reg           core_rx_source_source_payload_last_be = 1'd0;
-wire          core_rx_source_source_payload_error;
-wire   [15:0] core_rx_source_source_param_src_port;
-wire   [15:0] core_rx_source_source_param_dst_port;
-wire   [31:0] core_rx_source_source_param_ip_address;
-wire   [15:0] core_rx_source_source_param_length;
-wire          core_rx_depacketizer_sink_valid;
-reg           core_rx_depacketizer_sink_ready = 1'd0;
-wire          core_rx_depacketizer_sink_first;
-wire          core_rx_depacketizer_sink_last;
-wire    [7:0] core_rx_depacketizer_sink_payload_data;
-wire          core_rx_depacketizer_sink_payload_last_be;
-wire          core_rx_depacketizer_sink_payload_error;
-wire   [15:0] core_rx_depacketizer_sink_param_length;
-wire    [7:0] core_rx_depacketizer_sink_param_protocol;
-wire   [31:0] core_rx_depacketizer_sink_param_ip_address;
-reg           core_rx_depacketizer_source_valid = 1'd0;
-reg           core_rx_depacketizer_source_ready = 1'd0;
-reg           core_rx_depacketizer_source_last = 1'd0;
-reg     [7:0] core_rx_depacketizer_source_payload_data = 8'd0;
-reg           core_rx_depacketizer_source_payload_last_be = 1'd0;
-wire          core_rx_depacketizer_source_payload_error;
-wire   [15:0] core_rx_depacketizer_source_param_checksum;
-wire   [15:0] core_rx_depacketizer_source_param_dst_port;
-wire   [15:0] core_rx_depacketizer_source_param_length;
-wire   [15:0] core_rx_depacketizer_source_param_src_port;
-wire   [63:0] core_rx_depacketizer_header;
-reg    [63:0] core_rx_depacketizer_sr = 64'd0;
-reg           core_rx_depacketizer_sr_shift = 1'd0;
-reg           core_rx_depacketizer_sr_shift_leftover = 1'd0;
+wire          core_ip_rx_sink_sink_first;
+wire          core_ip_rx_sink_sink_last;
+wire    [7:0] core_ip_rx_sink_sink_payload_data;
+wire          core_ip_rx_sink_sink_payload_error;
+wire   [15:0] core_ip_rx_sink_sink_payload_ethernet_type;
+wire          core_ip_rx_sink_sink_payload_last_be;
+wire   [47:0] core_ip_rx_sink_sink_payload_sender_mac;
+wire   [47:0] core_ip_rx_sink_sink_payload_target_mac;
+wire          core_ip_rx_sink_sink_ready;
+wire          core_ip_rx_sink_sink_valid;
+reg           core_ip_rx_source_source_first = 1'd0;
+wire          core_ip_rx_source_source_last;
+wire   [31:0] core_ip_rx_source_source_param_ip_address;
+wire   [15:0] core_ip_rx_source_source_param_length;
+wire    [7:0] core_ip_rx_source_source_param_protocol;
+wire    [7:0] core_ip_rx_source_source_payload_data;
+wire          core_ip_rx_source_source_payload_error;
+wire          core_ip_rx_source_source_payload_last_be;
+wire          core_ip_rx_source_source_ready;
+reg           core_ip_rx_source_source_valid = 1'd0;
+wire          core_ip_tx_ce;
+reg           core_ip_tx_liteethipv4checksum0 = 1'd0;
+reg           core_ip_tx_liteethipv4checksum1 = 1'd0;
+reg           core_ip_tx_liteethipv4checksum2 = 1'd0;
+reg           core_ip_tx_liteethipv4checksum3 = 1'd0;
+reg           core_ip_tx_liteethipv4checksum4 = 1'd0;
+reg           core_ip_tx_liteethipv4checksum5 = 1'd0;
+reg           core_ip_tx_liteethipv4checksum6 = 1'd0;
+reg           core_ip_tx_liteethipv4checksum7 = 1'd0;
+reg           core_ip_tx_liteethipv4checksum8 = 1'd0;
+reg     [3:0] core_ip_tx_liteethipv4checksum_counter = 4'd0;
+wire          core_ip_tx_liteethipv4checksum_counter_ce;
+wire          core_ip_tx_liteethipv4checksum_done;
+wire  [159:0] core_ip_tx_liteethipv4checksum_header;
+reg    [16:0] core_ip_tx_liteethipv4checksum_r = 17'd0;
+reg    [16:0] core_ip_tx_liteethipv4checksum_r_next0 = 17'd0;
+reg    [16:0] core_ip_tx_liteethipv4checksum_r_next1 = 17'd0;
+reg    [16:0] core_ip_tx_liteethipv4checksum_r_next2 = 17'd0;
+reg    [16:0] core_ip_tx_liteethipv4checksum_r_next3 = 17'd0;
+reg    [16:0] core_ip_tx_liteethipv4checksum_r_next4 = 17'd0;
+reg    [16:0] core_ip_tx_liteethipv4checksum_r_next5 = 17'd0;
+reg    [16:0] core_ip_tx_liteethipv4checksum_r_next6 = 17'd0;
+reg    [16:0] core_ip_tx_liteethipv4checksum_r_next7 = 17'd0;
+reg    [16:0] core_ip_tx_liteethipv4checksum_r_next8 = 17'd0;
+wire   [16:0] core_ip_tx_liteethipv4checksum_s_next0;
+wire   [16:0] core_ip_tx_liteethipv4checksum_s_next1;
+wire   [16:0] core_ip_tx_liteethipv4checksum_s_next2;
+wire   [16:0] core_ip_tx_liteethipv4checksum_s_next3;
+wire   [16:0] core_ip_tx_liteethipv4checksum_s_next4;
+wire   [16:0] core_ip_tx_liteethipv4checksum_s_next5;
+wire   [16:0] core_ip_tx_liteethipv4checksum_s_next6;
+wire   [16:0] core_ip_tx_liteethipv4checksum_s_next7;
+wire   [16:0] core_ip_tx_liteethipv4checksum_s_next8;
+wire   [15:0] core_ip_tx_liteethipv4checksum_value;
+reg     [4:0] core_ip_tx_packetizer_count = 5'd0;
+reg     [4:0] core_ip_tx_packetizer_count_liteethip_fsm0_next_value0 = 5'd0;
+reg           core_ip_tx_packetizer_count_liteethip_fsm0_next_value_ce0 = 1'd0;
+reg           core_ip_tx_packetizer_delayed_last_be = 1'd0;
+reg           core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value0 = 1'd0;
+reg           core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value_ce0 = 1'd0;
+reg           core_ip_tx_packetizer_fsm_from_idle = 1'd0;
+reg           core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value1 = 1'd0;
+reg           core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value_ce1 = 1'd0;
+reg   [159:0] core_ip_tx_packetizer_header = 160'd0;
+wire          core_ip_tx_packetizer_in_data_copy;
+reg           core_ip_tx_packetizer_is_ongoing0 = 1'd0;
+reg           core_ip_tx_packetizer_is_ongoing1 = 1'd0;
+reg           core_ip_tx_packetizer_is_ongoing2 = 1'd0;
+wire          core_ip_tx_packetizer_new_last_be;
+wire          core_ip_tx_packetizer_sink_last;
+wire          core_ip_tx_packetizer_sink_last_be;
+wire   [15:0] core_ip_tx_packetizer_sink_param_checksum;
+wire   [15:0] core_ip_tx_packetizer_sink_param_identification;
+wire    [3:0] core_ip_tx_packetizer_sink_param_ihl;
+wire    [7:0] core_ip_tx_packetizer_sink_param_protocol;
+wire   [31:0] core_ip_tx_packetizer_sink_param_sender_ip;
+wire   [31:0] core_ip_tx_packetizer_sink_param_target_ip;
+wire   [15:0] core_ip_tx_packetizer_sink_param_total_length;
+wire    [7:0] core_ip_tx_packetizer_sink_param_ttl;
+wire    [3:0] core_ip_tx_packetizer_sink_param_version;
+wire    [7:0] core_ip_tx_packetizer_sink_payload_data;
+reg           core_ip_tx_packetizer_sink_payload_error = 1'd0;
+wire          core_ip_tx_packetizer_sink_payload_last_be;
+reg           core_ip_tx_packetizer_sink_ready = 1'd0;
+wire          core_ip_tx_packetizer_sink_valid;
+reg           core_ip_tx_packetizer_source_first = 1'd0;
+reg           core_ip_tx_packetizer_source_last = 1'd0;
+reg           core_ip_tx_packetizer_source_last_a = 1'd0;
+reg           core_ip_tx_packetizer_source_last_b = 1'd0;
+reg           core_ip_tx_packetizer_source_last_s = 1'd0;
+reg     [7:0] core_ip_tx_packetizer_source_payload_data = 8'd0;
+wire          core_ip_tx_packetizer_source_payload_error;
+reg    [15:0] core_ip_tx_packetizer_source_payload_ethernet_type = 16'd0;
+reg           core_ip_tx_packetizer_source_payload_last_be = 1'd0;
+reg    [47:0] core_ip_tx_packetizer_source_payload_sender_mac = 48'd0;
+reg    [47:0] core_ip_tx_packetizer_source_payload_target_mac = 48'd0;
+reg           core_ip_tx_packetizer_source_ready = 1'd0;
+reg           core_ip_tx_packetizer_source_valid = 1'd0;
+reg   [159:0] core_ip_tx_packetizer_sr = 160'd0;
+reg           core_ip_tx_packetizer_sr_load = 1'd0;
+reg           core_ip_tx_packetizer_sr_shift = 1'd0;
+wire          core_ip_tx_pipe_valid_sink_first;
+wire          core_ip_tx_pipe_valid_sink_last;
+wire   [31:0] core_ip_tx_pipe_valid_sink_param_ip_address;
+wire   [15:0] core_ip_tx_pipe_valid_sink_param_length;
+wire    [7:0] core_ip_tx_pipe_valid_sink_param_protocol;
+wire    [7:0] core_ip_tx_pipe_valid_sink_payload_data;
+wire          core_ip_tx_pipe_valid_sink_payload_error;
+wire          core_ip_tx_pipe_valid_sink_payload_last_be;
+wire          core_ip_tx_pipe_valid_sink_ready;
+wire          core_ip_tx_pipe_valid_sink_valid;
+reg           core_ip_tx_pipe_valid_source_first = 1'd0;
+reg           core_ip_tx_pipe_valid_source_last = 1'd0;
+reg    [31:0] core_ip_tx_pipe_valid_source_param_ip_address = 32'd0;
+reg    [15:0] core_ip_tx_pipe_valid_source_param_length = 16'd0;
+reg     [7:0] core_ip_tx_pipe_valid_source_param_protocol = 8'd0;
+reg     [7:0] core_ip_tx_pipe_valid_source_payload_data = 8'd0;
+reg           core_ip_tx_pipe_valid_source_payload_error = 1'd0;
+reg           core_ip_tx_pipe_valid_source_payload_last_be = 1'd0;
+wire          core_ip_tx_pipe_valid_source_ready;
+reg           core_ip_tx_pipe_valid_source_valid = 1'd0;
+wire          core_ip_tx_reset;
+wire          core_ip_tx_sink_sink_first0;
+wire          core_ip_tx_sink_sink_first1;
+wire          core_ip_tx_sink_sink_last0;
+wire          core_ip_tx_sink_sink_last1;
+wire   [31:0] core_ip_tx_sink_sink_param_ip_address0;
+wire   [31:0] core_ip_tx_sink_sink_param_ip_address1;
+wire   [15:0] core_ip_tx_sink_sink_param_length0;
+wire   [15:0] core_ip_tx_sink_sink_param_length1;
+wire    [7:0] core_ip_tx_sink_sink_param_protocol0;
+wire    [7:0] core_ip_tx_sink_sink_param_protocol1;
+wire    [7:0] core_ip_tx_sink_sink_payload_data0;
+wire    [7:0] core_ip_tx_sink_sink_payload_data1;
+wire          core_ip_tx_sink_sink_payload_error0;
+wire          core_ip_tx_sink_sink_payload_error1;
+wire          core_ip_tx_sink_sink_payload_last_be0;
+wire          core_ip_tx_sink_sink_payload_last_be1;
+wire          core_ip_tx_sink_sink_ready0;
+wire          core_ip_tx_sink_sink_ready1;
+wire          core_ip_tx_sink_sink_valid0;
+wire          core_ip_tx_sink_sink_valid1;
+reg           core_ip_tx_source_source_first0 = 1'd0;
+wire          core_ip_tx_source_source_first1;
+reg           core_ip_tx_source_source_last0 = 1'd0;
+wire          core_ip_tx_source_source_last1;
+wire   [31:0] core_ip_tx_source_source_param_ip_address;
+wire   [15:0] core_ip_tx_source_source_param_length;
+wire    [7:0] core_ip_tx_source_source_param_protocol;
+reg     [7:0] core_ip_tx_source_source_payload_data0 = 8'd0;
+wire    [7:0] core_ip_tx_source_source_payload_data1;
+reg           core_ip_tx_source_source_payload_error0 = 1'd0;
+wire          core_ip_tx_source_source_payload_error1;
+reg    [15:0] core_ip_tx_source_source_payload_ethernet_type = 16'd0;
+reg           core_ip_tx_source_source_payload_last_be0 = 1'd0;
+wire          core_ip_tx_source_source_payload_last_be1;
+reg    [47:0] core_ip_tx_source_source_payload_sender_mac = 48'd0;
+reg    [47:0] core_ip_tx_source_source_payload_target_mac = 48'd0;
+wire          core_ip_tx_source_source_ready0;
+wire          core_ip_tx_source_source_ready1;
+reg           core_ip_tx_source_source_valid0 = 1'd0;
+wire          core_ip_tx_source_source_valid1;
+reg    [47:0] core_ip_tx_target_mac = 48'd0;
+reg    [47:0] core_ip_tx_target_mac_liteethip_next_value = 48'd0;
+reg           core_ip_tx_target_mac_liteethip_next_value_ce = 1'd0;
+reg           core_ip_tx_target_unreachable = 1'd0;
+wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_first;
+wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_last;
+wire    [7:0] core_mac_core_bufferizeendpoints_pipe_valid_sink_payload_data;
+wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_payload_error;
+wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_payload_last_be;
+wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_ready;
+wire          core_mac_core_bufferizeendpoints_pipe_valid_sink_valid;
+reg           core_mac_core_bufferizeendpoints_pipe_valid_source_first = 1'd0;
+reg           core_mac_core_bufferizeendpoints_pipe_valid_source_last = 1'd0;
+reg     [7:0] core_mac_core_bufferizeendpoints_pipe_valid_source_payload_data = 8'd0;
+reg           core_mac_core_bufferizeendpoints_pipe_valid_source_payload_error = 1'd0;
+reg           core_mac_core_bufferizeendpoints_pipe_valid_source_payload_last_be = 1'd0;
+wire          core_mac_core_bufferizeendpoints_pipe_valid_source_ready;
+reg           core_mac_core_bufferizeendpoints_pipe_valid_source_valid = 1'd0;
+wire          core_mac_core_bufferizeendpoints_sink_sink_first;
+wire          core_mac_core_bufferizeendpoints_sink_sink_last;
+wire    [7:0] core_mac_core_bufferizeendpoints_sink_sink_payload_data;
+wire          core_mac_core_bufferizeendpoints_sink_sink_payload_error;
+wire          core_mac_core_bufferizeendpoints_sink_sink_payload_last_be;
+wire          core_mac_core_bufferizeendpoints_sink_sink_ready;
+wire          core_mac_core_bufferizeendpoints_sink_sink_valid;
+wire          core_mac_core_bufferizeendpoints_source_source_first;
+wire          core_mac_core_bufferizeendpoints_source_source_last;
+wire    [7:0] core_mac_core_bufferizeendpoints_source_source_payload_data;
+wire          core_mac_core_bufferizeendpoints_source_source_payload_error;
+wire          core_mac_core_bufferizeendpoints_source_source_payload_last_be;
+wire          core_mac_core_bufferizeendpoints_source_source_ready;
+wire          core_mac_core_bufferizeendpoints_source_source_valid;
+wire   [11:0] core_mac_core_cdc_asyncfifo_din;
+wire   [11:0] core_mac_core_cdc_asyncfifo_dout;
+wire          core_mac_core_cdc_asyncfifo_re;
+wire          core_mac_core_cdc_asyncfifo_readable;
+wire          core_mac_core_cdc_asyncfifo_we;
+wire          core_mac_core_cdc_asyncfifo_writable;
+wire    [5:0] core_mac_core_cdc_consume_wdomain;
+wire          core_mac_core_cdc_fifo_in_first;
+wire          core_mac_core_cdc_fifo_in_last;
+wire    [7:0] core_mac_core_cdc_fifo_in_payload_data;
+wire          core_mac_core_cdc_fifo_in_payload_error;
+wire          core_mac_core_cdc_fifo_in_payload_last_be;
+wire          core_mac_core_cdc_fifo_out_first;
+wire          core_mac_core_cdc_fifo_out_last;
+wire    [7:0] core_mac_core_cdc_fifo_out_payload_data;
+wire          core_mac_core_cdc_fifo_out_payload_error;
+wire          core_mac_core_cdc_fifo_out_payload_last_be;
+wire          core_mac_core_cdc_graycounter0_ce;
+(* syn_no_retiming = "true" *)
+reg     [5:0] core_mac_core_cdc_graycounter0_q = 6'd0;
+reg     [5:0] core_mac_core_cdc_graycounter0_q_binary = 6'd0;
+wire    [5:0] core_mac_core_cdc_graycounter0_q_next;
+reg     [5:0] core_mac_core_cdc_graycounter0_q_next_binary = 6'd0;
+wire          core_mac_core_cdc_graycounter1_ce;
+(* syn_no_retiming = "true" *)
+reg     [5:0] core_mac_core_cdc_graycounter1_q = 6'd0;
+reg     [5:0] core_mac_core_cdc_graycounter1_q_binary = 6'd0;
+wire    [5:0] core_mac_core_cdc_graycounter1_q_next;
+reg     [5:0] core_mac_core_cdc_graycounter1_q_next_binary = 6'd0;
+wire    [5:0] core_mac_core_cdc_produce_rdomain;
+wire    [4:0] core_mac_core_cdc_rdport_adr;
+wire   [11:0] core_mac_core_cdc_rdport_dat_r;
+wire          core_mac_core_cdc_sink_first;
+wire          core_mac_core_cdc_sink_last;
+wire    [7:0] core_mac_core_cdc_sink_payload_data;
+wire          core_mac_core_cdc_sink_payload_error;
+wire          core_mac_core_cdc_sink_payload_last_be;
+wire          core_mac_core_cdc_sink_ready;
+wire          core_mac_core_cdc_sink_valid;
+wire          core_mac_core_cdc_source_first;
+wire          core_mac_core_cdc_source_last;
+wire    [7:0] core_mac_core_cdc_source_payload_data;
+wire          core_mac_core_cdc_source_payload_error;
+wire          core_mac_core_cdc_source_payload_last_be;
+wire          core_mac_core_cdc_source_ready;
+wire          core_mac_core_cdc_source_valid;
+wire    [4:0] core_mac_core_cdc_wrport_adr;
+wire   [11:0] core_mac_core_cdc_wrport_dat_r;
+wire   [11:0] core_mac_core_cdc_wrport_dat_w;
+wire          core_mac_core_cdc_wrport_we;
+reg    [31:0] core_mac_core_crc_errors_status = 32'd0;
+wire          core_mac_core_liteethmaccrc32checker_crc_be;
+reg           core_mac_core_liteethmaccrc32checker_crc_ce = 1'd0;
+reg    [31:0] core_mac_core_liteethmaccrc32checker_crc_crc_next = 32'd0;
+wire   [31:0] core_mac_core_liteethmaccrc32checker_crc_crc_prev;
+wire    [7:0] core_mac_core_liteethmaccrc32checker_crc_data0;
+reg     [7:0] core_mac_core_liteethmaccrc32checker_crc_data1 = 8'd0;
+reg           core_mac_core_liteethmaccrc32checker_crc_error0 = 1'd0;
+reg           core_mac_core_liteethmaccrc32checker_crc_error1 = 1'd0;
+reg           core_mac_core_liteethmaccrc32checker_crc_error1_liteethmac_next_value1 = 1'd0;
+reg           core_mac_core_liteethmaccrc32checker_crc_error1_liteethmac_next_value_ce1 = 1'd0;
+reg    [31:0] core_mac_core_liteethmaccrc32checker_crc_reg = 32'd4294967295;
+reg           core_mac_core_liteethmaccrc32checker_crc_reset = 1'd0;
+reg           core_mac_core_liteethmaccrc32checker_error = 1'd0;
+wire          core_mac_core_liteethmaccrc32checker_fifo_full;
+wire          core_mac_core_liteethmaccrc32checker_fifo_in;
+wire          core_mac_core_liteethmaccrc32checker_fifo_out;
+reg           core_mac_core_liteethmaccrc32checker_fifo_reset = 1'd0;
+reg           core_mac_core_liteethmaccrc32checker_last_be = 1'd0;
+reg           core_mac_core_liteethmaccrc32checker_last_be_liteethmac_next_value0 = 1'd0;
+reg           core_mac_core_liteethmaccrc32checker_last_be_liteethmac_next_value_ce0 = 1'd0;
+wire          core_mac_core_liteethmaccrc32checker_sink_sink_first;
+wire          core_mac_core_liteethmaccrc32checker_sink_sink_last;
+wire    [7:0] core_mac_core_liteethmaccrc32checker_sink_sink_payload_data;
+wire          core_mac_core_liteethmaccrc32checker_sink_sink_payload_error;
+wire          core_mac_core_liteethmaccrc32checker_sink_sink_payload_last_be;
+reg           core_mac_core_liteethmaccrc32checker_sink_sink_ready = 1'd0;
+wire          core_mac_core_liteethmaccrc32checker_sink_sink_valid;
+wire          core_mac_core_liteethmaccrc32checker_source_source_first;
+reg           core_mac_core_liteethmaccrc32checker_source_source_last = 1'd0;
+wire    [7:0] core_mac_core_liteethmaccrc32checker_source_source_payload_data;
+reg           core_mac_core_liteethmaccrc32checker_source_source_payload_error = 1'd0;
+reg           core_mac_core_liteethmaccrc32checker_source_source_payload_last_be = 1'd0;
+wire          core_mac_core_liteethmaccrc32checker_source_source_ready;
+reg           core_mac_core_liteethmaccrc32checker_source_source_valid = 1'd0;
+reg     [2:0] core_mac_core_liteethmaccrc32checker_syncfifo_consume = 3'd0;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_do_read;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_first;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_last;
+wire    [7:0] core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_payload_data;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_payload_error;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_payload_last_be;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_first;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_last;
+wire    [7:0] core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_payload_data;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_payload_error;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_payload_last_be;
+reg     [2:0] core_mac_core_liteethmaccrc32checker_syncfifo_level = 3'd0;
+reg     [2:0] core_mac_core_liteethmaccrc32checker_syncfifo_produce = 3'd0;
+wire    [2:0] core_mac_core_liteethmaccrc32checker_syncfifo_rdport_adr;
+wire   [11:0] core_mac_core_liteethmaccrc32checker_syncfifo_rdport_dat_r;
+reg           core_mac_core_liteethmaccrc32checker_syncfifo_replace = 1'd0;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_sink_first;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_sink_last;
+wire    [7:0] core_mac_core_liteethmaccrc32checker_syncfifo_sink_payload_data;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_sink_payload_error;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_sink_payload_last_be;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_sink_ready;
+reg           core_mac_core_liteethmaccrc32checker_syncfifo_sink_valid = 1'd0;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_source_first;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_source_last;
+wire    [7:0] core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_data;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_error;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_last_be;
+reg           core_mac_core_liteethmaccrc32checker_syncfifo_source_ready = 1'd0;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_source_valid;
+wire   [11:0] core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_din;
+wire   [11:0] core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_dout;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_re;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_readable;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_we;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_writable;
+reg     [2:0] core_mac_core_liteethmaccrc32checker_syncfifo_wrport_adr = 3'd0;
+wire   [11:0] core_mac_core_liteethmaccrc32checker_syncfifo_wrport_dat_r;
+wire   [11:0] core_mac_core_liteethmaccrc32checker_syncfifo_wrport_dat_w;
+wire          core_mac_core_liteethmaccrc32checker_syncfifo_wrport_we;
+reg    [31:0] core_mac_core_preamble_errors_status = 32'd0;
+wire          core_mac_core_pulsesynchronizer0_i;
+wire          core_mac_core_pulsesynchronizer0_o;
+reg           core_mac_core_pulsesynchronizer0_toggle_i = 1'd0;
+wire          core_mac_core_pulsesynchronizer0_toggle_o;
+reg           core_mac_core_pulsesynchronizer0_toggle_o_r = 1'd0;
+wire          core_mac_core_pulsesynchronizer1_i;
+wire          core_mac_core_pulsesynchronizer1_o;
+reg           core_mac_core_pulsesynchronizer1_toggle_i = 1'd0;
+wire          core_mac_core_pulsesynchronizer1_toggle_o;
+reg           core_mac_core_pulsesynchronizer1_toggle_o_r = 1'd0;
+reg    [10:0] core_mac_core_rx_padding_length = 11'd0;
+reg     [3:0] core_mac_core_rx_padding_length_inc = 4'd0;
+wire          core_mac_core_rx_padding_sink_first;
+wire          core_mac_core_rx_padding_sink_last;
+wire    [7:0] core_mac_core_rx_padding_sink_payload_data;
+wire          core_mac_core_rx_padding_sink_payload_error;
+wire          core_mac_core_rx_padding_sink_payload_last_be;
+wire          core_mac_core_rx_padding_sink_ready;
+wire          core_mac_core_rx_padding_sink_valid;
+wire          core_mac_core_rx_padding_source_first;
+wire          core_mac_core_rx_padding_source_last;
+wire    [7:0] core_mac_core_rx_padding_source_payload_data;
+reg           core_mac_core_rx_padding_source_payload_error = 1'd0;
+wire          core_mac_core_rx_padding_source_payload_last_be;
+wire          core_mac_core_rx_padding_source_ready;
+wire          core_mac_core_rx_padding_source_valid;
+reg           core_mac_core_rx_preamble_error = 1'd0;
+reg    [63:0] core_mac_core_rx_preamble_preamble = 64'd15372286728091293013;
+wire          core_mac_core_rx_preamble_sink_first;
+wire          core_mac_core_rx_preamble_sink_last;
+wire    [7:0] core_mac_core_rx_preamble_sink_payload_data;
+wire          core_mac_core_rx_preamble_sink_payload_error;
+wire          core_mac_core_rx_preamble_sink_payload_last_be;
+reg           core_mac_core_rx_preamble_sink_ready = 1'd0;
+wire          core_mac_core_rx_preamble_sink_valid;
+reg           core_mac_core_rx_preamble_source_first = 1'd0;
+reg           core_mac_core_rx_preamble_source_last = 1'd0;
+wire    [7:0] core_mac_core_rx_preamble_source_payload_data;
+reg           core_mac_core_rx_preamble_source_payload_error = 1'd0;
+wire          core_mac_core_rx_preamble_source_payload_last_be;
+wire          core_mac_core_rx_preamble_source_ready;
+reg           core_mac_core_rx_preamble_source_valid = 1'd0;
+wire          core_mac_core_sink_first;
+wire          core_mac_core_sink_last;
+wire    [7:0] core_mac_core_sink_payload_data;
+wire          core_mac_core_sink_payload_error;
+wire          core_mac_core_sink_payload_last_be;
+wire          core_mac_core_sink_ready;
+wire          core_mac_core_sink_sink_first;
+wire          core_mac_core_sink_sink_last;
+wire    [7:0] core_mac_core_sink_sink_payload_data;
+wire          core_mac_core_sink_sink_payload_error;
+wire          core_mac_core_sink_sink_payload_last_be;
+wire          core_mac_core_sink_sink_ready;
+wire          core_mac_core_sink_sink_valid;
+wire          core_mac_core_sink_valid;
+wire          core_mac_core_source_first;
+wire          core_mac_core_source_last;
+wire    [7:0] core_mac_core_source_payload_data;
+wire          core_mac_core_source_payload_error;
+wire          core_mac_core_source_payload_last_be;
+wire          core_mac_core_source_ready;
+wire          core_mac_core_source_source_first;
+wire          core_mac_core_source_source_last;
+wire    [7:0] core_mac_core_source_source_payload_data;
+wire          core_mac_core_source_source_payload_error;
+wire          core_mac_core_source_source_payload_last_be;
+wire          core_mac_core_source_source_ready;
+wire          core_mac_core_source_source_valid;
+wire          core_mac_core_source_valid;
+wire          core_mac_core_tx_crc_be;
+reg           core_mac_core_tx_crc_ce = 1'd0;
+reg     [1:0] core_mac_core_tx_crc_cnt = 2'd3;
+wire          core_mac_core_tx_crc_cnt_done;
+reg    [31:0] core_mac_core_tx_crc_crc_next = 32'd0;
+reg    [31:0] core_mac_core_tx_crc_crc_packet = 32'd0;
+reg    [31:0] core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value0 = 32'd0;
+reg           core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value_ce0 = 1'd0;
+wire   [31:0] core_mac_core_tx_crc_crc_prev;
+wire    [7:0] core_mac_core_tx_crc_data0;
+wire    [7:0] core_mac_core_tx_crc_data1;
+reg           core_mac_core_tx_crc_error = 1'd0;
+reg           core_mac_core_tx_crc_is_ongoing0 = 1'd0;
+reg           core_mac_core_tx_crc_is_ongoing1 = 1'd0;
+reg           core_mac_core_tx_crc_last_be = 1'd0;
+reg           core_mac_core_tx_crc_last_be_liteethmac_clockdomainsrenamer1_next_value1 = 1'd0;
+reg           core_mac_core_tx_crc_last_be_liteethmac_clockdomainsrenamer1_next_value_ce1 = 1'd0;
+wire          core_mac_core_tx_crc_pipe_valid_sink_first;
+wire          core_mac_core_tx_crc_pipe_valid_sink_last;
+wire    [7:0] core_mac_core_tx_crc_pipe_valid_sink_payload_data;
+wire          core_mac_core_tx_crc_pipe_valid_sink_payload_error;
+wire          core_mac_core_tx_crc_pipe_valid_sink_payload_last_be;
+wire          core_mac_core_tx_crc_pipe_valid_sink_ready;
+wire          core_mac_core_tx_crc_pipe_valid_sink_valid;
+reg           core_mac_core_tx_crc_pipe_valid_source_first = 1'd0;
+reg           core_mac_core_tx_crc_pipe_valid_source_last = 1'd0;
+reg     [7:0] core_mac_core_tx_crc_pipe_valid_source_payload_data = 8'd0;
+reg           core_mac_core_tx_crc_pipe_valid_source_payload_error = 1'd0;
+reg           core_mac_core_tx_crc_pipe_valid_source_payload_last_be = 1'd0;
+wire          core_mac_core_tx_crc_pipe_valid_source_ready;
+reg           core_mac_core_tx_crc_pipe_valid_source_valid = 1'd0;
+reg    [31:0] core_mac_core_tx_crc_reg = 32'd4294967295;
+reg           core_mac_core_tx_crc_reset = 1'd0;
+wire          core_mac_core_tx_crc_sink_first;
+wire          core_mac_core_tx_crc_sink_last;
+wire    [7:0] core_mac_core_tx_crc_sink_payload_data;
+wire          core_mac_core_tx_crc_sink_payload_error;
+wire          core_mac_core_tx_crc_sink_payload_last_be;
+reg           core_mac_core_tx_crc_sink_ready = 1'd0;
+wire          core_mac_core_tx_crc_sink_sink_first;
+wire          core_mac_core_tx_crc_sink_sink_last;
+wire    [7:0] core_mac_core_tx_crc_sink_sink_payload_data;
+wire          core_mac_core_tx_crc_sink_sink_payload_error;
+wire          core_mac_core_tx_crc_sink_sink_payload_last_be;
+wire          core_mac_core_tx_crc_sink_sink_ready;
+wire          core_mac_core_tx_crc_sink_sink_valid;
+wire          core_mac_core_tx_crc_sink_valid;
+reg           core_mac_core_tx_crc_source_first = 1'd0;
+reg           core_mac_core_tx_crc_source_last = 1'd0;
+reg     [7:0] core_mac_core_tx_crc_source_payload_data = 8'd0;
+reg           core_mac_core_tx_crc_source_payload_error = 1'd0;
+reg           core_mac_core_tx_crc_source_payload_last_be = 1'd0;
+wire          core_mac_core_tx_crc_source_ready;
+wire          core_mac_core_tx_crc_source_source_first;
+wire          core_mac_core_tx_crc_source_source_last;
+wire    [7:0] core_mac_core_tx_crc_source_source_payload_data;
+wire          core_mac_core_tx_crc_source_source_payload_error;
+wire          core_mac_core_tx_crc_source_source_payload_last_be;
+wire          core_mac_core_tx_crc_source_source_ready;
+wire          core_mac_core_tx_crc_source_source_valid;
+reg           core_mac_core_tx_crc_source_valid = 1'd0;
+reg    [31:0] core_mac_core_tx_crc_value = 32'd0;
+reg     [3:0] core_mac_core_tx_gap_counter = 4'd0;
+reg     [3:0] core_mac_core_tx_gap_counter_liteethmac_clockdomainsrenamer3_next_value = 4'd0;
+reg           core_mac_core_tx_gap_counter_liteethmac_clockdomainsrenamer3_next_value_ce = 1'd0;
+wire          core_mac_core_tx_gap_sink_first;
+wire          core_mac_core_tx_gap_sink_last;
+wire    [7:0] core_mac_core_tx_gap_sink_payload_data;
+wire          core_mac_core_tx_gap_sink_payload_error;
+wire          core_mac_core_tx_gap_sink_payload_last_be;
+reg           core_mac_core_tx_gap_sink_ready = 1'd0;
+wire          core_mac_core_tx_gap_sink_valid;
+reg           core_mac_core_tx_gap_source_first = 1'd0;
+reg           core_mac_core_tx_gap_source_last = 1'd0;
+reg     [7:0] core_mac_core_tx_gap_source_payload_data = 8'd0;
+reg           core_mac_core_tx_gap_source_payload_error = 1'd0;
+reg           core_mac_core_tx_gap_source_payload_last_be = 1'd0;
+wire          core_mac_core_tx_gap_source_ready;
+reg           core_mac_core_tx_gap_source_valid = 1'd0;
+reg    [15:0] core_mac_core_tx_padding_counter = 16'd0;
+wire          core_mac_core_tx_padding_counter_done;
+reg    [15:0] core_mac_core_tx_padding_counter_liteethmac_clockdomainsrenamer0_next_value = 16'd0;
+reg           core_mac_core_tx_padding_counter_liteethmac_clockdomainsrenamer0_next_value_ce = 1'd0;
+wire          core_mac_core_tx_padding_sink_first;
+wire          core_mac_core_tx_padding_sink_last;
+wire    [7:0] core_mac_core_tx_padding_sink_payload_data;
+wire          core_mac_core_tx_padding_sink_payload_error;
+wire          core_mac_core_tx_padding_sink_payload_last_be;
+reg           core_mac_core_tx_padding_sink_ready = 1'd0;
+wire          core_mac_core_tx_padding_sink_valid;
+reg           core_mac_core_tx_padding_source_first = 1'd0;
+reg           core_mac_core_tx_padding_source_last = 1'd0;
+reg     [7:0] core_mac_core_tx_padding_source_payload_data = 8'd0;
+reg           core_mac_core_tx_padding_source_payload_error = 1'd0;
+reg           core_mac_core_tx_padding_source_payload_last_be = 1'd0;
+wire          core_mac_core_tx_padding_source_ready;
+reg           core_mac_core_tx_padding_source_valid = 1'd0;
+reg     [2:0] core_mac_core_tx_preamble_count = 3'd0;
+reg     [2:0] core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value = 3'd0;
+reg           core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value_ce = 1'd0;
+reg    [63:0] core_mac_core_tx_preamble_preamble = 64'd15372286728091293013;
+wire          core_mac_core_tx_preamble_sink_first;
+wire          core_mac_core_tx_preamble_sink_last;
+wire    [7:0] core_mac_core_tx_preamble_sink_payload_data;
+wire          core_mac_core_tx_preamble_sink_payload_error;
+wire          core_mac_core_tx_preamble_sink_payload_last_be;
+reg           core_mac_core_tx_preamble_sink_ready = 1'd0;
+wire          core_mac_core_tx_preamble_sink_valid;
+reg           core_mac_core_tx_preamble_source_first = 1'd0;
+reg           core_mac_core_tx_preamble_source_last = 1'd0;
+reg     [7:0] core_mac_core_tx_preamble_source_payload_data = 8'd0;
+reg           core_mac_core_tx_preamble_source_payload_error = 1'd0;
+wire          core_mac_core_tx_preamble_source_payload_last_be;
+wire          core_mac_core_tx_preamble_source_ready;
+reg           core_mac_core_tx_preamble_source_valid = 1'd0;
+wire   [11:0] core_mac_core_txdatapath_cdc_asyncfifo_din;
+wire   [11:0] core_mac_core_txdatapath_cdc_asyncfifo_dout;
+wire          core_mac_core_txdatapath_cdc_asyncfifo_re;
+wire          core_mac_core_txdatapath_cdc_asyncfifo_readable;
+wire          core_mac_core_txdatapath_cdc_asyncfifo_we;
+wire          core_mac_core_txdatapath_cdc_asyncfifo_writable;
+wire    [5:0] core_mac_core_txdatapath_cdc_consume_wdomain;
+wire          core_mac_core_txdatapath_cdc_fifo_in_first;
+wire          core_mac_core_txdatapath_cdc_fifo_in_last;
+wire    [7:0] core_mac_core_txdatapath_cdc_fifo_in_payload_data;
+wire          core_mac_core_txdatapath_cdc_fifo_in_payload_error;
+wire          core_mac_core_txdatapath_cdc_fifo_in_payload_last_be;
+wire          core_mac_core_txdatapath_cdc_fifo_out_first;
+wire          core_mac_core_txdatapath_cdc_fifo_out_last;
+wire    [7:0] core_mac_core_txdatapath_cdc_fifo_out_payload_data;
+wire          core_mac_core_txdatapath_cdc_fifo_out_payload_error;
+wire          core_mac_core_txdatapath_cdc_fifo_out_payload_last_be;
+wire          core_mac_core_txdatapath_cdc_graycounter0_ce;
+(* syn_no_retiming = "true" *)
+reg     [5:0] core_mac_core_txdatapath_cdc_graycounter0_q = 6'd0;
+reg     [5:0] core_mac_core_txdatapath_cdc_graycounter0_q_binary = 6'd0;
+wire    [5:0] core_mac_core_txdatapath_cdc_graycounter0_q_next;
+reg     [5:0] core_mac_core_txdatapath_cdc_graycounter0_q_next_binary = 6'd0;
+wire          core_mac_core_txdatapath_cdc_graycounter1_ce;
+(* syn_no_retiming = "true" *)
+reg     [5:0] core_mac_core_txdatapath_cdc_graycounter1_q = 6'd0;
+reg     [5:0] core_mac_core_txdatapath_cdc_graycounter1_q_binary = 6'd0;
+wire    [5:0] core_mac_core_txdatapath_cdc_graycounter1_q_next;
+reg     [5:0] core_mac_core_txdatapath_cdc_graycounter1_q_next_binary = 6'd0;
+wire    [5:0] core_mac_core_txdatapath_cdc_produce_rdomain;
+wire    [4:0] core_mac_core_txdatapath_cdc_rdport_adr;
+wire   [11:0] core_mac_core_txdatapath_cdc_rdport_dat_r;
+wire          core_mac_core_txdatapath_cdc_sink_first;
+wire          core_mac_core_txdatapath_cdc_sink_last;
+wire    [7:0] core_mac_core_txdatapath_cdc_sink_payload_data;
+wire          core_mac_core_txdatapath_cdc_sink_payload_error;
+wire          core_mac_core_txdatapath_cdc_sink_payload_last_be;
+wire          core_mac_core_txdatapath_cdc_sink_ready;
+wire          core_mac_core_txdatapath_cdc_sink_valid;
+wire          core_mac_core_txdatapath_cdc_source_first;
+wire          core_mac_core_txdatapath_cdc_source_last;
+wire    [7:0] core_mac_core_txdatapath_cdc_source_payload_data;
+wire          core_mac_core_txdatapath_cdc_source_payload_error;
+wire          core_mac_core_txdatapath_cdc_source_payload_last_be;
+wire          core_mac_core_txdatapath_cdc_source_ready;
+wire          core_mac_core_txdatapath_cdc_source_valid;
+wire    [4:0] core_mac_core_txdatapath_cdc_wrport_adr;
+wire   [11:0] core_mac_core_txdatapath_cdc_wrport_dat_r;
+wire   [11:0] core_mac_core_txdatapath_cdc_wrport_dat_w;
+wire          core_mac_core_txdatapath_cdc_wrport_we;
+wire          core_mac_core_txdatapath_sink_sink_first;
+wire          core_mac_core_txdatapath_sink_sink_last;
+wire    [7:0] core_mac_core_txdatapath_sink_sink_payload_data;
+wire          core_mac_core_txdatapath_sink_sink_payload_error;
+wire          core_mac_core_txdatapath_sink_sink_payload_last_be;
+wire          core_mac_core_txdatapath_sink_sink_ready;
+wire          core_mac_core_txdatapath_sink_sink_valid;
+wire          core_mac_core_txdatapath_source_source_first;
+wire          core_mac_core_txdatapath_source_source_last;
+wire    [7:0] core_mac_core_txdatapath_source_source_payload_data;
+wire          core_mac_core_txdatapath_source_source_payload_error;
+wire          core_mac_core_txdatapath_source_source_payload_last_be;
+wire          core_mac_core_txdatapath_source_source_ready;
+wire          core_mac_core_txdatapath_source_source_valid;
+wire          core_mac_crossbar_sink_first;
+wire          core_mac_crossbar_sink_last;
+wire    [7:0] core_mac_crossbar_sink_payload_data;
+wire          core_mac_crossbar_sink_payload_error;
+wire   [15:0] core_mac_crossbar_sink_payload_ethernet_type;
+wire          core_mac_crossbar_sink_payload_last_be;
+wire   [47:0] core_mac_crossbar_sink_payload_sender_mac;
+wire   [47:0] core_mac_crossbar_sink_payload_target_mac;
+reg           core_mac_crossbar_sink_ready = 1'd0;
+wire          core_mac_crossbar_sink_valid;
+reg           core_mac_crossbar_source_first = 1'd0;
+reg           core_mac_crossbar_source_last = 1'd0;
+reg     [7:0] core_mac_crossbar_source_payload_data = 8'd0;
+reg           core_mac_crossbar_source_payload_error = 1'd0;
+reg    [15:0] core_mac_crossbar_source_payload_ethernet_type = 16'd0;
+reg           core_mac_crossbar_source_payload_last_be = 1'd0;
+reg    [47:0] core_mac_crossbar_source_payload_sender_mac = 48'd0;
+reg    [47:0] core_mac_crossbar_source_payload_target_mac = 48'd0;
+wire          core_mac_crossbar_source_ready;
+reg           core_mac_crossbar_source_valid = 1'd0;
+reg     [3:0] core_mac_depacketizer_count = 4'd0;
+reg     [3:0] core_mac_depacketizer_count_liteethmac_fsm0_next_value2 = 4'd0;
+reg           core_mac_depacketizer_count_liteethmac_fsm0_next_value_ce2 = 1'd0;
+reg           core_mac_depacketizer_delayed_last_be = 1'd0;
+reg           core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value1 = 1'd0;
+reg           core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value_ce1 = 1'd0;
+reg           core_mac_depacketizer_fsm_from_idle = 1'd0;
+reg           core_mac_depacketizer_fsm_from_idle_liteethmac_fsm0_next_value3 = 1'd0;
+reg           core_mac_depacketizer_fsm_from_idle_liteethmac_fsm0_next_value_ce3 = 1'd0;
+wire  [111:0] core_mac_depacketizer_header;
+wire          core_mac_depacketizer_is_in_copy;
+reg           core_mac_depacketizer_is_ongoing0 = 1'd0;
+reg           core_mac_depacketizer_is_ongoing1 = 1'd0;
+reg           core_mac_depacketizer_is_ongoing2 = 1'd0;
+reg           core_mac_depacketizer_is_ongoing3 = 1'd0;
+wire          core_mac_depacketizer_new_last_be;
+reg           core_mac_depacketizer_sink_d_last = 1'd0;
+wire          core_mac_depacketizer_sink_first;
+wire          core_mac_depacketizer_sink_last;
+wire          core_mac_depacketizer_sink_last_be;
+wire    [7:0] core_mac_depacketizer_sink_payload_data;
+wire          core_mac_depacketizer_sink_payload_error;
+wire          core_mac_depacketizer_sink_payload_last_be;
+reg           core_mac_depacketizer_sink_ready = 1'd0;
+wire          core_mac_depacketizer_sink_valid;
+reg           core_mac_depacketizer_source_first = 1'd0;
+reg           core_mac_depacketizer_source_last = 1'd0;
+reg           core_mac_depacketizer_source_last_a = 1'd0;
+reg           core_mac_depacketizer_source_last_b = 1'd0;
+reg           core_mac_depacketizer_source_last_s = 1'd0;
+reg     [7:0] core_mac_depacketizer_source_payload_data = 8'd0;
+wire          core_mac_depacketizer_source_payload_error;
+wire   [15:0] core_mac_depacketizer_source_payload_ethernet_type;
+reg           core_mac_depacketizer_source_payload_last_be = 1'd0;
+wire   [47:0] core_mac_depacketizer_source_payload_sender_mac;
+wire   [47:0] core_mac_depacketizer_source_payload_target_mac;
+wire          core_mac_depacketizer_source_ready;
+reg           core_mac_depacketizer_source_valid = 1'd0;
+reg   [111:0] core_mac_depacketizer_sr = 112'd0;
+reg           core_mac_depacketizer_sr_shift = 1'd0;
+reg           core_mac_depacketizer_sr_shift_leftover = 1'd0;
+reg           core_mac_depacketizer_was_in_copy = 1'd0;
+reg     [3:0] core_mac_packetizer_count = 4'd0;
+reg     [3:0] core_mac_packetizer_count_liteethmac_fsm0_next_value0 = 4'd0;
+reg           core_mac_packetizer_count_liteethmac_fsm0_next_value_ce0 = 1'd0;
+reg           core_mac_packetizer_delayed_last_be = 1'd0;
+reg           core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value0 = 1'd0;
+reg           core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value_ce0 = 1'd0;
+reg           core_mac_packetizer_fsm_from_idle = 1'd0;
+reg           core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value1 = 1'd0;
+reg           core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value_ce1 = 1'd0;
+reg   [111:0] core_mac_packetizer_header = 112'd0;
+wire          core_mac_packetizer_in_data_copy;
+reg           core_mac_packetizer_is_ongoing0 = 1'd0;
+reg           core_mac_packetizer_is_ongoing1 = 1'd0;
+reg           core_mac_packetizer_is_ongoing2 = 1'd0;
+wire          core_mac_packetizer_new_last_be;
+wire          core_mac_packetizer_sink_first;
+wire          core_mac_packetizer_sink_last;
+wire          core_mac_packetizer_sink_last_be;
+wire    [7:0] core_mac_packetizer_sink_payload_data;
+wire          core_mac_packetizer_sink_payload_error;
+wire   [15:0] core_mac_packetizer_sink_payload_ethernet_type;
+wire          core_mac_packetizer_sink_payload_last_be;
+wire   [47:0] core_mac_packetizer_sink_payload_sender_mac;
+wire   [47:0] core_mac_packetizer_sink_payload_target_mac;
+reg           core_mac_packetizer_sink_ready = 1'd0;
+wire          core_mac_packetizer_sink_valid;
+reg           core_mac_packetizer_source_first = 1'd0;
+reg           core_mac_packetizer_source_last = 1'd0;
+reg           core_mac_packetizer_source_last_a = 1'd0;
+reg           core_mac_packetizer_source_last_b = 1'd0;
+reg           core_mac_packetizer_source_last_s = 1'd0;
+reg     [7:0] core_mac_packetizer_source_payload_data = 8'd0;
+wire          core_mac_packetizer_source_payload_error;
+reg           core_mac_packetizer_source_payload_last_be = 1'd0;
+wire          core_mac_packetizer_source_ready;
+reg           core_mac_packetizer_source_valid = 1'd0;
+reg   [111:0] core_mac_packetizer_sr = 112'd0;
+reg           core_mac_packetizer_sr_load = 1'd0;
+reg           core_mac_packetizer_sr_shift = 1'd0;
+reg    [15:0] core_rx_count = 16'd0;
+reg    [15:0] core_rx_count_liteethudp_next_value = 16'd0;
+reg           core_rx_count_liteethudp_next_value_ce = 1'd0;
 reg     [2:0] core_rx_depacketizer_count = 3'd0;
-reg           core_rx_depacketizer_sink_d_last = 1'd0;
-reg           core_rx_depacketizer_source_last_a = 1'd0;
-reg           core_rx_depacketizer_source_last_b = 1'd0;
-reg           core_rx_depacketizer_source_last_s = 1'd0;
-reg           core_rx_depacketizer_fsm_from_idle = 1'd0;
-wire          core_rx_depacketizer_sink_last_be;
-wire          core_rx_depacketizer_new_last_be;
+reg     [2:0] core_rx_depacketizer_count_liteethudp_fsm0_next_value2 = 3'd0;
+reg           core_rx_depacketizer_count_liteethudp_fsm0_next_value_ce2 = 1'd0;
 reg           core_rx_depacketizer_delayed_last_be = 1'd0;
+reg           core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value1 = 1'd0;
+reg           core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value_ce1 = 1'd0;
+reg           core_rx_depacketizer_fsm_from_idle = 1'd0;
+reg           core_rx_depacketizer_fsm_from_idle_liteethudp_fsm0_next_value3 = 1'd0;
+reg           core_rx_depacketizer_fsm_from_idle_liteethudp_fsm0_next_value_ce3 = 1'd0;
+wire   [63:0] core_rx_depacketizer_header;
 wire          core_rx_depacketizer_is_in_copy;
-reg           core_rx_depacketizer_was_in_copy = 1'd0;
 reg           core_rx_depacketizer_is_ongoing0 = 1'd0;
 reg           core_rx_depacketizer_is_ongoing1 = 1'd0;
 reg           core_rx_depacketizer_is_ongoing2 = 1'd0;
 reg           core_rx_depacketizer_is_ongoing3 = 1'd0;
-reg    [15:0] core_rx_count = 16'd0;
-wire          core_ip_port_sink_valid;
-reg           core_ip_port_sink_ready = 1'd0;
-wire          core_ip_port_sink_first;
-wire          core_ip_port_sink_last;
-wire    [7:0] core_ip_port_sink_payload_data;
-wire          core_ip_port_sink_payload_last_be;
-wire          core_ip_port_sink_payload_error;
-wire   [15:0] core_ip_port_sink_param_length;
-wire    [7:0] core_ip_port_sink_param_protocol;
-wire   [31:0] core_ip_port_sink_param_ip_address;
-reg           core_ip_port_source_valid = 1'd0;
-wire          core_ip_port_source_ready;
-reg           core_ip_port_source_first = 1'd0;
-reg           core_ip_port_source_last = 1'd0;
-reg     [7:0] core_ip_port_source_payload_data = 8'd0;
-reg           core_ip_port_source_payload_last_be = 1'd0;
-reg           core_ip_port_source_payload_error = 1'd0;
-reg    [15:0] core_ip_port_source_param_length = 16'd0;
-reg     [7:0] core_ip_port_source_param_protocol = 8'd0;
-reg    [31:0] core_ip_port_source_param_ip_address = 32'd0;
-wire          core_crossbar_source_valid;
-wire          core_crossbar_source_ready;
-wire          core_crossbar_source_first;
-wire          core_crossbar_source_last;
-wire    [7:0] core_crossbar_source_payload_data;
-wire          core_crossbar_source_payload_last_be;
-wire          core_crossbar_source_payload_error;
-wire   [15:0] core_crossbar_source_param_src_port;
-wire   [15:0] core_crossbar_source_param_dst_port;
-wire   [31:0] core_crossbar_source_param_ip_address;
-wire   [15:0] core_crossbar_source_param_length;
-wire          core_crossbar_sink_valid;
-wire          core_crossbar_sink_ready;
-wire          core_crossbar_sink_first;
-wire          core_crossbar_sink_last;
-wire    [7:0] core_crossbar_sink_payload_data;
-wire          core_crossbar_sink_payload_last_be;
-wire          core_crossbar_sink_payload_error;
-wire   [15:0] core_crossbar_sink_param_src_port;
-wire   [15:0] core_crossbar_sink_param_dst_port;
-wire   [31:0] core_crossbar_sink_param_ip_address;
-wire   [15:0] core_crossbar_sink_param_length;
-wire          udp_streamer_tx_sink_sink_valid;
-wire          udp_streamer_tx_sink_sink_ready;
-reg           udp_streamer_tx_sink_sink_first = 1'd0;
-wire          udp_streamer_tx_sink_sink_last;
-wire    [7:0] udp_streamer_tx_sink_sink_payload_data;
-reg           udp_streamer_tx_source_source_valid = 1'd0;
-wire          udp_streamer_tx_source_source_ready;
-reg           udp_streamer_tx_source_source_first = 1'd0;
-reg           udp_streamer_tx_source_source_last = 1'd0;
-reg     [7:0] udp_streamer_tx_source_source_payload_data = 8'd0;
-reg           udp_streamer_tx_source_source_payload_last_be = 1'd0;
-reg           udp_streamer_tx_source_source_payload_error = 1'd0;
-reg    [15:0] udp_streamer_tx_source_source_param_src_port = 16'd0;
-reg    [15:0] udp_streamer_tx_source_source_param_dst_port = 16'd0;
-reg    [31:0] udp_streamer_tx_source_source_param_ip_address = 32'd0;
-reg    [15:0] udp_streamer_tx_source_source_param_length = 16'd0;
-reg     [6:0] udp_streamer_tx_level = 7'd0;
-reg     [6:0] udp_streamer_tx_counter = 7'd0;
-wire          udp_streamer_tx_fifo_sink_valid;
-wire          udp_streamer_tx_fifo_sink_ready;
-wire          udp_streamer_tx_fifo_sink_first;
-wire          udp_streamer_tx_fifo_sink_last;
-wire    [7:0] udp_streamer_tx_fifo_sink_payload_data;
-wire          udp_streamer_tx_fifo_source_valid;
-reg           udp_streamer_tx_fifo_source_ready = 1'd0;
-wire          udp_streamer_tx_fifo_source_first;
-wire          udp_streamer_tx_fifo_source_last;
-wire    [7:0] udp_streamer_tx_fifo_source_payload_data;
-wire          udp_streamer_tx_fifo_re;
-reg           udp_streamer_tx_fifo_readable = 1'd0;
-wire          udp_streamer_tx_fifo_syncfifo_we;
-wire          udp_streamer_tx_fifo_syncfifo_writable;
-wire          udp_streamer_tx_fifo_syncfifo_re;
-wire          udp_streamer_tx_fifo_syncfifo_readable;
-wire    [9:0] udp_streamer_tx_fifo_syncfifo_din;
-wire    [9:0] udp_streamer_tx_fifo_syncfifo_dout;
-reg     [6:0] udp_streamer_tx_fifo_level0 = 7'd0;
-reg           udp_streamer_tx_fifo_replace = 1'd0;
-reg     [5:0] udp_streamer_tx_fifo_produce = 6'd0;
-reg     [5:0] udp_streamer_tx_fifo_consume = 6'd0;
-reg     [5:0] udp_streamer_tx_fifo_wrport_adr = 6'd0;
-wire    [9:0] udp_streamer_tx_fifo_wrport_dat_r;
-wire          udp_streamer_tx_fifo_wrport_we;
-wire    [9:0] udp_streamer_tx_fifo_wrport_dat_w;
-wire          udp_streamer_tx_fifo_do_read;
-wire    [5:0] udp_streamer_tx_fifo_rdport_adr;
-wire    [9:0] udp_streamer_tx_fifo_rdport_dat_r;
-wire          udp_streamer_tx_fifo_rdport_re;
-wire    [6:0] udp_streamer_tx_fifo_level1;
-wire    [7:0] udp_streamer_tx_fifo_fifo_in_payload_data;
-wire          udp_streamer_tx_fifo_fifo_in_first;
-wire          udp_streamer_tx_fifo_fifo_in_last;
-wire    [7:0] udp_streamer_tx_fifo_fifo_out_payload_data;
-wire          udp_streamer_tx_fifo_fifo_out_first;
-wire          udp_streamer_tx_fifo_fifo_out_last;
-wire          udp_streamer_rx_sink_sink_valid;
-wire          udp_streamer_rx_sink_sink_ready;
-wire          udp_streamer_rx_sink_sink_first;
-wire          udp_streamer_rx_sink_sink_last;
-wire    [7:0] udp_streamer_rx_sink_sink_payload_data;
-wire          udp_streamer_rx_sink_sink_payload_last_be;
-wire          udp_streamer_rx_sink_sink_payload_error;
-wire   [15:0] udp_streamer_rx_sink_sink_param_src_port;
-wire   [15:0] udp_streamer_rx_sink_sink_param_dst_port;
-wire   [31:0] udp_streamer_rx_sink_sink_param_ip_address;
-wire   [15:0] udp_streamer_rx_sink_sink_param_length;
-wire          udp_streamer_rx_source_source_valid;
-wire          udp_streamer_rx_source_source_ready;
-wire          udp_streamer_rx_source_source_first;
-wire          udp_streamer_rx_source_source_last;
-wire    [7:0] udp_streamer_rx_source_source_payload_data;
-wire          udp_streamer_rx_source_source_payload_error;
-reg           udp_streamer_rx_valid = 1'd1;
-wire          udp_streamer_rx_fifo_sink_valid;
-wire          udp_streamer_rx_fifo_sink_ready;
-reg           udp_streamer_rx_fifo_sink_first = 1'd0;
-wire          udp_streamer_rx_fifo_sink_last;
-wire    [7:0] udp_streamer_rx_fifo_sink_payload_data;
-wire          udp_streamer_rx_fifo_sink_payload_error;
-wire          udp_streamer_rx_fifo_source_valid;
-wire          udp_streamer_rx_fifo_source_ready;
-wire          udp_streamer_rx_fifo_source_first;
-wire          udp_streamer_rx_fifo_source_last;
-wire    [7:0] udp_streamer_rx_fifo_source_payload_data;
-wire          udp_streamer_rx_fifo_source_payload_error;
-wire          udp_streamer_rx_fifo_re;
-reg           udp_streamer_rx_fifo_readable = 1'd0;
-wire          udp_streamer_rx_fifo_syncfifo_we;
-wire          udp_streamer_rx_fifo_syncfifo_writable;
-wire          udp_streamer_rx_fifo_syncfifo_re;
-wire          udp_streamer_rx_fifo_syncfifo_readable;
-wire   [10:0] udp_streamer_rx_fifo_syncfifo_din;
-wire   [10:0] udp_streamer_rx_fifo_syncfifo_dout;
-reg     [6:0] udp_streamer_rx_fifo_level0 = 7'd0;
-reg           udp_streamer_rx_fifo_replace = 1'd0;
-reg     [5:0] udp_streamer_rx_fifo_produce = 6'd0;
-reg     [5:0] udp_streamer_rx_fifo_consume = 6'd0;
-reg     [5:0] udp_streamer_rx_fifo_wrport_adr = 6'd0;
-wire   [10:0] udp_streamer_rx_fifo_wrport_dat_r;
-wire          udp_streamer_rx_fifo_wrport_we;
-wire   [10:0] udp_streamer_rx_fifo_wrport_dat_w;
-wire          udp_streamer_rx_fifo_do_read;
-wire    [5:0] udp_streamer_rx_fifo_rdport_adr;
-wire   [10:0] udp_streamer_rx_fifo_rdport_dat_r;
-wire          udp_streamer_rx_fifo_rdport_re;
-wire    [6:0] udp_streamer_rx_fifo_level1;
-wire    [7:0] udp_streamer_rx_fifo_fifo_in_payload_data;
-wire          udp_streamer_rx_fifo_fifo_in_payload_error;
-wire          udp_streamer_rx_fifo_fifo_in_first;
-wire          udp_streamer_rx_fifo_fifo_in_last;
-wire    [7:0] udp_streamer_rx_fifo_fifo_out_payload_data;
-wire          udp_streamer_rx_fifo_fifo_out_payload_error;
-wire          udp_streamer_rx_fifo_fifo_out_first;
-wire          udp_streamer_rx_fifo_fifo_out_last;
-wire          udp_streamer_user_port_sink_valid;
-wire          udp_streamer_user_port_sink_ready;
-wire          udp_streamer_user_port_sink_first;
-wire          udp_streamer_user_port_sink_last;
-wire    [7:0] udp_streamer_user_port_sink_payload_data;
-wire          udp_streamer_user_port_sink_payload_last_be;
-wire          udp_streamer_user_port_sink_payload_error;
-wire   [15:0] udp_streamer_user_port_sink_param_src_port;
-wire   [15:0] udp_streamer_user_port_sink_param_dst_port;
-wire   [31:0] udp_streamer_user_port_sink_param_ip_address;
-wire   [15:0] udp_streamer_user_port_sink_param_length;
-wire          udp_streamer_user_port_source_valid;
-wire          udp_streamer_user_port_source_ready;
-wire          udp_streamer_user_port_source_first;
-wire          udp_streamer_user_port_source_last;
-wire    [7:0] udp_streamer_user_port_source_payload_data;
-wire          udp_streamer_user_port_source_payload_last_be;
-wire          udp_streamer_user_port_source_payload_error;
-wire   [15:0] udp_streamer_user_port_source_param_src_port;
-wire   [15:0] udp_streamer_user_port_source_param_dst_port;
-wire   [31:0] udp_streamer_user_port_source_param_ip_address;
-wire   [15:0] udp_streamer_user_port_source_param_length;
-wire          udp_streamer_internal_port_sink_valid;
-wire          udp_streamer_internal_port_sink_ready;
-wire          udp_streamer_internal_port_sink_first;
-wire          udp_streamer_internal_port_sink_last;
-wire    [7:0] udp_streamer_internal_port_sink_payload_data;
-wire          udp_streamer_internal_port_sink_payload_last_be;
-wire          udp_streamer_internal_port_sink_payload_error;
-wire   [15:0] udp_streamer_internal_port_sink_param_src_port;
-wire   [15:0] udp_streamer_internal_port_sink_param_dst_port;
-wire   [31:0] udp_streamer_internal_port_sink_param_ip_address;
-wire   [15:0] udp_streamer_internal_port_sink_param_length;
-wire          udp_streamer_internal_port_source_valid;
-wire          udp_streamer_internal_port_source_ready;
-wire          udp_streamer_internal_port_source_first;
-wire          udp_streamer_internal_port_source_last;
-wire    [7:0] udp_streamer_internal_port_source_payload_data;
-wire          udp_streamer_internal_port_source_payload_last_be;
-wire          udp_streamer_internal_port_source_payload_error;
-wire   [15:0] udp_streamer_internal_port_source_param_src_port;
-wire   [15:0] udp_streamer_internal_port_source_param_dst_port;
-wire   [31:0] udp_streamer_internal_port_source_param_ip_address;
-wire   [15:0] udp_streamer_internal_port_source_param_length;
-wire          udp_streamer_tx_cdc_sink_valid;
-wire          udp_streamer_tx_cdc_sink_ready;
-wire          udp_streamer_tx_cdc_sink_first;
-wire          udp_streamer_tx_cdc_sink_last;
-wire    [7:0] udp_streamer_tx_cdc_sink_payload_data;
-wire          udp_streamer_tx_cdc_sink_payload_last_be;
-wire          udp_streamer_tx_cdc_sink_payload_error;
-wire   [15:0] udp_streamer_tx_cdc_sink_param_src_port;
-wire   [15:0] udp_streamer_tx_cdc_sink_param_dst_port;
-wire   [31:0] udp_streamer_tx_cdc_sink_param_ip_address;
-wire   [15:0] udp_streamer_tx_cdc_sink_param_length;
-wire          udp_streamer_tx_cdc_source_valid;
-wire          udp_streamer_tx_cdc_source_ready;
-wire          udp_streamer_tx_cdc_source_first;
-wire          udp_streamer_tx_cdc_source_last;
-wire    [7:0] udp_streamer_tx_cdc_source_payload_data;
-wire          udp_streamer_tx_cdc_source_payload_last_be;
-wire          udp_streamer_tx_cdc_source_payload_error;
-wire   [15:0] udp_streamer_tx_cdc_source_param_src_port;
-wire   [15:0] udp_streamer_tx_cdc_source_param_dst_port;
-wire   [31:0] udp_streamer_tx_cdc_source_param_ip_address;
-wire   [15:0] udp_streamer_tx_cdc_source_param_length;
-wire          udp_streamer_tx_converter_sink_valid;
-wire          udp_streamer_tx_converter_sink_ready;
-wire          udp_streamer_tx_converter_sink_first;
-wire          udp_streamer_tx_converter_sink_last;
-wire    [7:0] udp_streamer_tx_converter_sink_payload_data;
-wire          udp_streamer_tx_converter_sink_payload_last_be;
-wire          udp_streamer_tx_converter_sink_payload_error;
-wire   [15:0] udp_streamer_tx_converter_sink_param_src_port;
-wire   [15:0] udp_streamer_tx_converter_sink_param_dst_port;
-wire   [31:0] udp_streamer_tx_converter_sink_param_ip_address;
-wire   [15:0] udp_streamer_tx_converter_sink_param_length;
-wire          udp_streamer_tx_converter_source_valid;
-wire          udp_streamer_tx_converter_source_ready;
-wire          udp_streamer_tx_converter_source_first;
-wire          udp_streamer_tx_converter_source_last;
-wire    [7:0] udp_streamer_tx_converter_source_payload_data;
-wire          udp_streamer_tx_converter_source_payload_last_be;
-wire          udp_streamer_tx_converter_source_payload_error;
-wire   [15:0] udp_streamer_tx_converter_source_param_src_port;
-wire   [15:0] udp_streamer_tx_converter_source_param_dst_port;
-wire   [31:0] udp_streamer_tx_converter_source_param_ip_address;
-wire   [15:0] udp_streamer_tx_converter_source_param_length;
-wire          udp_streamer_tx_converter_converter_sink_valid;
-wire          udp_streamer_tx_converter_converter_sink_ready;
-wire          udp_streamer_tx_converter_converter_sink_first;
-wire          udp_streamer_tx_converter_converter_sink_last;
-wire    [9:0] udp_streamer_tx_converter_converter_sink_payload_data;
-wire          udp_streamer_tx_converter_converter_source_valid;
-wire          udp_streamer_tx_converter_converter_source_ready;
-wire          udp_streamer_tx_converter_converter_source_first;
-wire          udp_streamer_tx_converter_converter_source_last;
-wire    [9:0] udp_streamer_tx_converter_converter_source_payload_data;
-wire          udp_streamer_tx_converter_converter_source_payload_valid_token_count;
-wire          udp_streamer_tx_converter_source_source_valid;
-wire          udp_streamer_tx_converter_source_source_ready;
-wire          udp_streamer_tx_converter_source_source_first;
-wire          udp_streamer_tx_converter_source_source_last;
-wire    [9:0] udp_streamer_tx_converter_source_source_payload_data;
-wire          udp_streamer_rx_converter_sink_valid;
-wire          udp_streamer_rx_converter_sink_ready;
-wire          udp_streamer_rx_converter_sink_first;
-wire          udp_streamer_rx_converter_sink_last;
-wire    [7:0] udp_streamer_rx_converter_sink_payload_data;
-wire          udp_streamer_rx_converter_sink_payload_last_be;
-wire          udp_streamer_rx_converter_sink_payload_error;
-wire   [15:0] udp_streamer_rx_converter_sink_param_src_port;
-wire   [15:0] udp_streamer_rx_converter_sink_param_dst_port;
-wire   [31:0] udp_streamer_rx_converter_sink_param_ip_address;
-wire   [15:0] udp_streamer_rx_converter_sink_param_length;
-wire          udp_streamer_rx_converter_source_valid;
-wire          udp_streamer_rx_converter_source_ready;
-wire          udp_streamer_rx_converter_source_first;
-wire          udp_streamer_rx_converter_source_last;
-wire    [7:0] udp_streamer_rx_converter_source_payload_data;
-wire          udp_streamer_rx_converter_source_payload_last_be;
-wire          udp_streamer_rx_converter_source_payload_error;
-wire   [15:0] udp_streamer_rx_converter_source_param_src_port;
-wire   [15:0] udp_streamer_rx_converter_source_param_dst_port;
-wire   [31:0] udp_streamer_rx_converter_source_param_ip_address;
-wire   [15:0] udp_streamer_rx_converter_source_param_length;
-wire          udp_streamer_rx_converter_converter_sink_valid;
-wire          udp_streamer_rx_converter_converter_sink_ready;
-wire          udp_streamer_rx_converter_converter_sink_first;
-wire          udp_streamer_rx_converter_converter_sink_last;
-wire    [9:0] udp_streamer_rx_converter_converter_sink_payload_data;
-wire          udp_streamer_rx_converter_converter_source_valid;
-wire          udp_streamer_rx_converter_converter_source_ready;
-wire          udp_streamer_rx_converter_converter_source_first;
-wire          udp_streamer_rx_converter_converter_source_last;
-wire    [9:0] udp_streamer_rx_converter_converter_source_payload_data;
-wire          udp_streamer_rx_converter_converter_source_payload_valid_token_count;
-wire          udp_streamer_rx_converter_source_source_valid;
-wire          udp_streamer_rx_converter_source_source_ready;
-wire          udp_streamer_rx_converter_source_source_first;
-wire          udp_streamer_rx_converter_source_source_last;
-wire    [9:0] udp_streamer_rx_converter_source_source_payload_data;
-wire          udp_streamer_rx_cdc_sink_valid;
-wire          udp_streamer_rx_cdc_sink_ready;
-wire          udp_streamer_rx_cdc_sink_first;
-wire          udp_streamer_rx_cdc_sink_last;
-wire    [7:0] udp_streamer_rx_cdc_sink_payload_data;
-wire          udp_streamer_rx_cdc_sink_payload_last_be;
-wire          udp_streamer_rx_cdc_sink_payload_error;
-wire   [15:0] udp_streamer_rx_cdc_sink_param_src_port;
-wire   [15:0] udp_streamer_rx_cdc_sink_param_dst_port;
-wire   [31:0] udp_streamer_rx_cdc_sink_param_ip_address;
-wire   [15:0] udp_streamer_rx_cdc_sink_param_length;
-wire          udp_streamer_rx_cdc_source_valid;
-wire          udp_streamer_rx_cdc_source_ready;
-wire          udp_streamer_rx_cdc_source_first;
-wire          udp_streamer_rx_cdc_source_last;
-wire    [7:0] udp_streamer_rx_cdc_source_payload_data;
-wire          udp_streamer_rx_cdc_source_payload_last_be;
-wire          udp_streamer_rx_cdc_source_payload_error;
-wire   [15:0] udp_streamer_rx_cdc_source_param_src_port;
-wire   [15:0] udp_streamer_rx_cdc_source_param_dst_port;
-wire   [31:0] udp_streamer_rx_cdc_source_param_ip_address;
-wire   [15:0] udp_streamer_rx_cdc_source_param_length;
-reg    [13:0] udpcore_adr = 14'd0;
-reg           udpcore_we = 1'd0;
-reg    [31:0] udpcore_dat_w = 32'd0;
-wire   [31:0] udpcore_dat_r;
-reg    [29:0] udpcore_wishbone_adr = 30'd0;
-reg    [31:0] udpcore_wishbone_dat_w = 32'd0;
-reg    [31:0] udpcore_wishbone_dat_r = 32'd0;
-reg     [3:0] udpcore_wishbone_sel = 4'd0;
-reg           udpcore_wishbone_cyc = 1'd0;
-reg           udpcore_wishbone_stb = 1'd0;
-reg           udpcore_wishbone_ack = 1'd0;
-reg           udpcore_wishbone_we = 1'd0;
-wire   [13:0] interface0_bank_bus_adr;
-wire          interface0_bank_bus_we;
-wire   [31:0] interface0_bank_bus_dat_w;
-reg    [31:0] interface0_bank_bus_dat_r = 32'd0;
-reg           csrbank0_reset0_re = 1'd0;
-wire    [1:0] csrbank0_reset0_r;
-reg           csrbank0_reset0_we = 1'd0;
-wire    [1:0] csrbank0_reset0_w;
-reg           csrbank0_scratch0_re = 1'd0;
-wire   [31:0] csrbank0_scratch0_r;
-reg           csrbank0_scratch0_we = 1'd0;
-wire   [31:0] csrbank0_scratch0_w;
-reg           csrbank0_bus_errors_re = 1'd0;
-wire   [31:0] csrbank0_bus_errors_r;
-reg           csrbank0_bus_errors_we = 1'd0;
-wire   [31:0] csrbank0_bus_errors_w;
-wire          csrbank0_sel;
-wire   [13:0] interface1_bank_bus_adr;
-wire          interface1_bank_bus_we;
-wire   [31:0] interface1_bank_bus_dat_w;
-reg    [31:0] interface1_bank_bus_dat_r = 32'd0;
-reg           csrbank1_crg_reset0_re = 1'd0;
-wire          csrbank1_crg_reset0_r;
-reg           csrbank1_crg_reset0_we = 1'd0;
-wire          csrbank1_crg_reset0_w;
-reg           csrbank1_rx_inband_status_re = 1'd0;
-wire    [2:0] csrbank1_rx_inband_status_r;
-reg           csrbank1_rx_inband_status_we = 1'd0;
-wire    [2:0] csrbank1_rx_inband_status_w;
-reg           csrbank1_mdio_w0_re = 1'd0;
-wire    [2:0] csrbank1_mdio_w0_r;
-reg           csrbank1_mdio_w0_we = 1'd0;
-wire    [2:0] csrbank1_mdio_w0_w;
-reg           csrbank1_mdio_r_re = 1'd0;
-wire          csrbank1_mdio_r_r;
-reg           csrbank1_mdio_r_we = 1'd0;
-wire          csrbank1_mdio_r_w;
-wire          csrbank1_sel;
-wire   [13:0] csr_interconnect_adr;
-wire          csr_interconnect_we;
-wire   [31:0] csr_interconnect_dat_w;
-wire   [31:0] csr_interconnect_dat_r;
-reg           udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_state = 1'd0;
-reg           udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_next_state = 1'd0;
-reg    [15:0] core_mac_core_tx_padding_counter_liteethmac_clockdomainsrenamer0_next_value = 16'd0;
-reg           core_mac_core_tx_padding_counter_liteethmac_clockdomainsrenamer0_next_value_ce = 1'd0;
-reg     [1:0] udpcore_liteethmac_txdatapath_bufferizeendpoints_state = 2'd0;
-reg     [1:0] udpcore_liteethmac_txdatapath_bufferizeendpoints_next_state = 2'd0;
-reg    [31:0] core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value0 = 32'd0;
-reg           core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value_ce0 = 1'd0;
-reg           core_mac_core_tx_crc_last_be2_liteethmac_clockdomainsrenamer1_next_value1 = 1'd0;
-reg           core_mac_core_tx_crc_last_be2_liteethmac_clockdomainsrenamer1_next_value_ce1 = 1'd0;
-reg     [1:0] udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_state = 2'd0;
-reg     [1:0] udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_next_state = 2'd0;
-reg     [2:0] core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value = 3'd0;
-reg           core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value_ce = 1'd0;
-reg           udpcore_liteethmac_txdatapath_liteethmacgap_state = 1'd0;
-reg           udpcore_liteethmac_txdatapath_liteethmacgap_next_state = 1'd0;
-reg     [3:0] core_mac_core_tx_gap_counter_liteethmac_clockdomainsrenamer3_next_value = 4'd0;
-reg           core_mac_core_tx_gap_counter_liteethmac_clockdomainsrenamer3_next_value_ce = 1'd0;
-reg           udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_state = 1'd0;
-reg           udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_next_state = 1'd0;
-reg     [1:0] udpcore_liteethmac_rxdatapath_bufferizeendpoints_state = 2'd0;
-reg     [1:0] udpcore_liteethmac_rxdatapath_bufferizeendpoints_next_state = 2'd0;
-reg           core_mac_core_liteethmaccrc32checker_last_be_liteethmac_next_value0 = 1'd0;
-reg           core_mac_core_liteethmaccrc32checker_last_be_liteethmac_next_value_ce0 = 1'd0;
-reg           core_mac_core_liteethmaccrc32checker_crc_error1_liteethmac_next_value1 = 1'd0;
-reg           core_mac_core_liteethmaccrc32checker_crc_error1_liteethmac_next_value_ce1 = 1'd0;
-reg     [1:0] udpcore_liteethmac_request = 2'd0;
-reg           udpcore_liteethmac_grant = 1'd0;
-reg           udpcore_liteethmac_status0_first = 1'd1;
-reg           udpcore_liteethmac_status0_last = 1'd0;
-wire          udpcore_liteethmac_status0_ongoing0;
-reg           udpcore_liteethmac_status0_ongoing1 = 1'd0;
-reg           udpcore_liteethmac_status1_first = 1'd1;
-reg           udpcore_liteethmac_status1_last = 1'd0;
-wire          udpcore_liteethmac_status1_ongoing0;
-reg           udpcore_liteethmac_status1_ongoing1 = 1'd0;
-reg     [1:0] udpcore_liteethmac_sel0 = 2'd0;
-reg           udpcore_liteethmac_first = 1'd1;
-reg           udpcore_liteethmac_last = 1'd0;
-wire          udpcore_liteethmac_ongoing0;
-reg           udpcore_liteethmac_ongoing1 = 1'd0;
-reg     [1:0] udpcore_liteethmac_sel1 = 2'd0;
-reg     [1:0] udpcore_liteethmac_sel_ongoing = 2'd0;
-reg     [1:0] udpcore_liteethmac_fsm0_state0 = 2'd0;
-reg     [1:0] udpcore_liteethmac_fsm0_next_state0 = 2'd0;
-reg     [3:0] core_mac_packetizer_count_liteethmac_fsm0_next_value0 = 4'd0;
-reg           core_mac_packetizer_count_liteethmac_fsm0_next_value_ce0 = 1'd0;
-reg           core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value1 = 1'd0;
-reg           core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value_ce1 = 1'd0;
-reg           udpcore_liteethmac_fsm1_state0 = 1'd0;
-reg           udpcore_liteethmac_fsm1_next_state0 = 1'd0;
-reg           core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value0 = 1'd0;
-reg           core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value_ce0 = 1'd0;
-reg     [1:0] udpcore_liteethmac_fsm0_state1 = 2'd0;
-reg     [1:0] udpcore_liteethmac_fsm0_next_state1 = 2'd0;
-reg     [3:0] core_mac_depacketizer_count_liteethmac_fsm0_next_value2 = 4'd0;
-reg           core_mac_depacketizer_count_liteethmac_fsm0_next_value_ce2 = 1'd0;
-reg           core_mac_depacketizer_fsm_from_idle_liteethmac_fsm0_next_value3 = 1'd0;
-reg           core_mac_depacketizer_fsm_from_idle_liteethmac_fsm0_next_value_ce3 = 1'd0;
-reg           udpcore_liteethmac_fsm1_state1 = 1'd0;
-reg           udpcore_liteethmac_fsm1_next_state1 = 1'd0;
-reg           core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value1 = 1'd0;
-reg           core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value_ce1 = 1'd0;
-reg     [1:0] udpcore_liteetharptx_fsm0_state = 2'd0;
-reg     [1:0] udpcore_liteetharptx_fsm0_next_state = 2'd0;
-reg     [4:0] core_arp_tx_packetizer_count_liteetharp_fsm0_next_value0 = 5'd0;
-reg           core_arp_tx_packetizer_count_liteetharp_fsm0_next_value_ce0 = 1'd0;
-reg           core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value1 = 1'd0;
-reg           core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value_ce1 = 1'd0;
-reg           udpcore_liteetharptx_fsm1_state = 1'd0;
-reg           udpcore_liteetharptx_fsm1_next_state = 1'd0;
-reg           core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value0 = 1'd0;
-reg           core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value_ce0 = 1'd0;
-reg           udpcore_liteetharptx_state = 1'd0;
-reg           udpcore_liteetharptx_next_state = 1'd0;
-reg     [5:0] core_arp_tx_counter_liteetharp_next_value = 6'd0;
-reg           core_arp_tx_counter_liteetharp_next_value_ce = 1'd0;
-reg     [1:0] udpcore_liteetharprx_fsm0_state = 2'd0;
-reg     [1:0] udpcore_liteetharprx_fsm0_next_state = 2'd0;
-reg     [4:0] core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value2 = 5'd0;
-reg           core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value_ce2 = 1'd0;
-reg           core_arp_rx_depacketizer_fsm_from_idle_liteetharp_fsm0_next_value3 = 1'd0;
-reg           core_arp_rx_depacketizer_fsm_from_idle_liteetharp_fsm0_next_value_ce3 = 1'd0;
-reg           udpcore_liteetharprx_fsm1_state = 1'd0;
-reg           udpcore_liteetharprx_fsm1_next_state = 1'd0;
-reg           core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value1 = 1'd0;
-reg           core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value_ce1 = 1'd0;
-reg     [1:0] udpcore_liteetharprx_state = 2'd0;
-reg     [1:0] udpcore_liteetharprx_next_state = 2'd0;
-reg     [2:0] udpcore_liteetharptable_state = 3'd0;
-reg     [2:0] udpcore_liteetharptable_next_state = 3'd0;
-reg     [1:0] udpcore_liteethip_liteethiptx_fsm0_state = 2'd0;
-reg     [1:0] udpcore_liteethip_liteethiptx_fsm0_next_state = 2'd0;
-reg     [4:0] core_ip_tx_packetizer_count_liteethip_fsm0_next_value0 = 5'd0;
-reg           core_ip_tx_packetizer_count_liteethip_fsm0_next_value_ce0 = 1'd0;
-reg           core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value1 = 1'd0;
-reg           core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value_ce1 = 1'd0;
-reg           udpcore_liteethip_liteethiptx_fsm1_state = 1'd0;
-reg           udpcore_liteethip_liteethiptx_fsm1_next_state = 1'd0;
-reg           core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value0 = 1'd0;
-reg           core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value_ce0 = 1'd0;
-reg     [2:0] udpcore_liteethip_liteethiptx_state = 3'd0;
-reg     [2:0] udpcore_liteethip_liteethiptx_next_state = 3'd0;
-reg    [47:0] core_ip_tx_target_mac_liteethip_next_value = 48'd0;
-reg           core_ip_tx_target_mac_liteethip_next_value_ce = 1'd0;
-reg     [1:0] udpcore_liteethip_liteethiprx_fsm0_state = 2'd0;
-reg     [1:0] udpcore_liteethip_liteethiprx_fsm0_next_state = 2'd0;
-reg     [4:0] core_ip_rx_depacketizer_count_liteethip_fsm0_next_value2 = 5'd0;
-reg           core_ip_rx_depacketizer_count_liteethip_fsm0_next_value_ce2 = 1'd0;
-reg           core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value3 = 1'd0;
-reg           core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value_ce3 = 1'd0;
-reg           udpcore_liteethip_liteethiprx_fsm1_state = 1'd0;
-reg           udpcore_liteethip_liteethiprx_fsm1_next_state = 1'd0;
-reg           core_ip_rx_depacketizer_delayed_last_be_liteethip_fsm1_next_value1 = 1'd0;
-reg           core_ip_rx_depacketizer_delayed_last_be_liteethip_fsm1_next_value_ce1 = 1'd0;
-reg     [1:0] udpcore_liteethip_liteethiprx_state = 2'd0;
-reg     [1:0] udpcore_liteethip_liteethiprx_next_state = 2'd0;
-reg     [1:0] udpcore_liteethip_request = 2'd0;
-reg           udpcore_liteethip_grant = 1'd0;
-reg           udpcore_liteethip_status0_first = 1'd1;
-reg           udpcore_liteethip_status0_last = 1'd0;
-wire          udpcore_liteethip_status0_ongoing0;
-reg           udpcore_liteethip_status0_ongoing1 = 1'd0;
-reg           udpcore_liteethip_status1_first = 1'd1;
-reg           udpcore_liteethip_status1_last = 1'd0;
-wire          udpcore_liteethip_status1_ongoing0;
-reg           udpcore_liteethip_status1_ongoing1 = 1'd0;
-reg     [1:0] udpcore_liteethip_sel0 = 2'd0;
-reg           udpcore_liteethip_first = 1'd1;
-reg           udpcore_liteethip_last = 1'd0;
-wire          udpcore_liteethip_ongoing0;
-reg           udpcore_liteethip_ongoing1 = 1'd0;
-reg     [1:0] udpcore_liteethip_sel1 = 2'd0;
-reg     [1:0] udpcore_liteethip_sel_ongoing = 2'd0;
-reg     [1:0] udpcore_liteethicmptx_fsm0_state = 2'd0;
-reg     [1:0] udpcore_liteethicmptx_fsm0_next_state = 2'd0;
-reg     [2:0] core_icmp_tx_packetizer_count_fsm0_next_value0 = 3'd0;
-reg           core_icmp_tx_packetizer_count_fsm0_next_value_ce0 = 1'd0;
-reg           core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value1 = 1'd0;
-reg           core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value_ce1 = 1'd0;
-reg           udpcore_liteethicmptx_fsm1_state = 1'd0;
-reg           udpcore_liteethicmptx_fsm1_next_state = 1'd0;
-reg           core_icmp_tx_packetizer_delayed_last_be_fsm1_next_value0 = 1'd0;
-reg           core_icmp_tx_packetizer_delayed_last_be_fsm1_next_value_ce0 = 1'd0;
-reg           udpcore_liteethicmptx_state = 1'd0;
-reg           udpcore_liteethicmptx_next_state = 1'd0;
-reg     [1:0] udpcore_liteethicmprx_fsm0_state = 2'd0;
-reg     [1:0] udpcore_liteethicmprx_fsm0_next_state = 2'd0;
-reg     [2:0] core_icmp_rx_depacketizer_count_fsm0_next_value2 = 3'd0;
-reg           core_icmp_rx_depacketizer_count_fsm0_next_value_ce2 = 1'd0;
-reg           core_icmp_rx_depacketizer_fsm_from_idle_fsm0_next_value3 = 1'd0;
-reg           core_icmp_rx_depacketizer_fsm_from_idle_fsm0_next_value_ce3 = 1'd0;
-reg           udpcore_liteethicmprx_fsm1_state = 1'd0;
-reg           udpcore_liteethicmprx_fsm1_next_state = 1'd0;
-reg           core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value1 = 1'd0;
-reg           core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value_ce1 = 1'd0;
-reg     [1:0] udpcore_liteethicmprx_state = 2'd0;
-reg     [1:0] udpcore_liteethicmprx_next_state = 2'd0;
-reg     [1:0] udpcore_liteethudp_liteethudptx_fsm0_state = 2'd0;
-reg     [1:0] udpcore_liteethudp_liteethudptx_fsm0_next_state = 2'd0;
+wire          core_rx_depacketizer_new_last_be;
+reg           core_rx_depacketizer_sink_d_last = 1'd0;
+wire          core_rx_depacketizer_sink_first;
+wire          core_rx_depacketizer_sink_last;
+wire          core_rx_depacketizer_sink_last_be;
+wire   [31:0] core_rx_depacketizer_sink_param_ip_address;
+wire   [15:0] core_rx_depacketizer_sink_param_length;
+wire    [7:0] core_rx_depacketizer_sink_param_protocol;
+wire    [7:0] core_rx_depacketizer_sink_payload_data;
+wire          core_rx_depacketizer_sink_payload_error;
+wire          core_rx_depacketizer_sink_payload_last_be;
+reg           core_rx_depacketizer_sink_ready = 1'd0;
+wire          core_rx_depacketizer_sink_valid;
+reg           core_rx_depacketizer_source_last = 1'd0;
+reg           core_rx_depacketizer_source_last_a = 1'd0;
+reg           core_rx_depacketizer_source_last_b = 1'd0;
+reg           core_rx_depacketizer_source_last_s = 1'd0;
+wire   [15:0] core_rx_depacketizer_source_param_checksum;
+wire   [15:0] core_rx_depacketizer_source_param_dst_port;
+wire   [15:0] core_rx_depacketizer_source_param_length;
+wire   [15:0] core_rx_depacketizer_source_param_src_port;
+reg     [7:0] core_rx_depacketizer_source_payload_data = 8'd0;
+wire          core_rx_depacketizer_source_payload_error;
+reg           core_rx_depacketizer_source_payload_last_be = 1'd0;
+reg           core_rx_depacketizer_source_ready = 1'd0;
+reg           core_rx_depacketizer_source_valid = 1'd0;
+reg    [63:0] core_rx_depacketizer_sr = 64'd0;
+reg           core_rx_depacketizer_sr_shift = 1'd0;
+reg           core_rx_depacketizer_sr_shift_leftover = 1'd0;
+reg           core_rx_depacketizer_was_in_copy = 1'd0;
+wire          core_rx_sink_sink_first;
+wire          core_rx_sink_sink_last;
+wire   [31:0] core_rx_sink_sink_param_ip_address;
+wire   [15:0] core_rx_sink_sink_param_length;
+wire    [7:0] core_rx_sink_sink_param_protocol;
+wire    [7:0] core_rx_sink_sink_payload_data;
+wire          core_rx_sink_sink_payload_error;
+wire          core_rx_sink_sink_payload_last_be;
+wire          core_rx_sink_sink_ready;
+wire          core_rx_sink_sink_valid;
+reg           core_rx_source_source_first = 1'd0;
+reg           core_rx_source_source_last = 1'd0;
+wire   [15:0] core_rx_source_source_param_dst_port;
+wire   [31:0] core_rx_source_source_param_ip_address;
+wire   [15:0] core_rx_source_source_param_length;
+wire   [15:0] core_rx_source_source_param_src_port;
+wire    [7:0] core_rx_source_source_payload_data;
+wire          core_rx_source_source_payload_error;
+reg           core_rx_source_source_payload_last_be = 1'd0;
+wire          core_rx_source_source_ready;
+reg           core_rx_source_source_valid = 1'd0;
+reg     [2:0] core_tx_packetizer_count = 3'd0;
 reg     [2:0] core_tx_packetizer_count_liteethudp_fsm0_next_value0 = 3'd0;
 reg           core_tx_packetizer_count_liteethudp_fsm0_next_value_ce0 = 1'd0;
-reg           core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value1 = 1'd0;
-reg           core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value_ce1 = 1'd0;
-reg           udpcore_liteethudp_liteethudptx_fsm1_state = 1'd0;
-reg           udpcore_liteethudp_liteethudptx_fsm1_next_state = 1'd0;
+reg           core_tx_packetizer_delayed_last_be = 1'd0;
 reg           core_tx_packetizer_delayed_last_be_liteethudp_fsm1_next_value0 = 1'd0;
 reg           core_tx_packetizer_delayed_last_be_liteethudp_fsm1_next_value_ce0 = 1'd0;
-reg           udpcore_liteethudp_liteethudptx_state = 1'd0;
-reg           udpcore_liteethudp_liteethudptx_next_state = 1'd0;
-reg     [1:0] udpcore_liteethudp_liteethudprx_fsm0_state = 2'd0;
-reg     [1:0] udpcore_liteethudp_liteethudprx_fsm0_next_state = 2'd0;
-reg     [2:0] core_rx_depacketizer_count_liteethudp_fsm0_next_value2 = 3'd0;
-reg           core_rx_depacketizer_count_liteethudp_fsm0_next_value_ce2 = 1'd0;
-reg           core_rx_depacketizer_fsm_from_idle_liteethudp_fsm0_next_value3 = 1'd0;
-reg           core_rx_depacketizer_fsm_from_idle_liteethudp_fsm0_next_value_ce3 = 1'd0;
-reg           udpcore_liteethudp_liteethudprx_fsm1_state = 1'd0;
-reg           udpcore_liteethudp_liteethudprx_fsm1_next_state = 1'd0;
-reg           core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value1 = 1'd0;
-reg           core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value_ce1 = 1'd0;
-reg     [1:0] udpcore_liteethudp_liteethudprx_state = 2'd0;
-reg     [1:0] udpcore_liteethudp_liteethudprx_next_state = 2'd0;
-reg    [15:0] core_rx_count_liteethudp_next_value = 16'd0;
-reg           core_rx_count_liteethudp_next_value_ce = 1'd0;
-reg           udpcore_liteethudp_sel = 1'd0;
-reg           udpcore_liteethudpstreamer_state = 1'd0;
-reg           udpcore_liteethudpstreamer_next_state = 1'd0;
-reg     [6:0] udp_streamer_tx_level_next_value0 = 7'd0;
-reg           udp_streamer_tx_level_next_value_ce0 = 1'd0;
-reg     [6:0] udp_streamer_tx_counter_next_value1 = 7'd0;
-reg           udp_streamer_tx_counter_next_value_ce1 = 1'd0;
-reg           udpcore_wishbone2csr_state = 1'd0;
-reg           udpcore_wishbone2csr_next_state = 1'd0;
-wire   [31:0] t_slice_proxy0;
-wire   [31:0] t_slice_proxy1;
-wire   [31:0] t_slice_proxy2;
-wire   [31:0] t_slice_proxy3;
-wire   [31:0] t_slice_proxy4;
-wire   [31:0] t_slice_proxy5;
-wire   [31:0] t_slice_proxy6;
-wire   [31:0] t_slice_proxy7;
-wire   [31:0] t_slice_proxy8;
-wire   [31:0] t_slice_proxy9;
-wire   [31:0] t_slice_proxy10;
-wire   [31:0] t_slice_proxy11;
-wire   [31:0] t_slice_proxy12;
-wire   [31:0] t_slice_proxy13;
-wire   [31:0] t_slice_proxy14;
-wire   [31:0] t_slice_proxy15;
-wire   [31:0] t_slice_proxy16;
-wire   [31:0] t_slice_proxy17;
-wire   [31:0] t_slice_proxy18;
-wire   [31:0] t_slice_proxy19;
-wire   [31:0] t_slice_proxy20;
-wire   [31:0] t_slice_proxy21;
-wire   [31:0] t_slice_proxy22;
-wire   [31:0] t_slice_proxy23;
-wire   [31:0] t_slice_proxy24;
-wire   [31:0] t_slice_proxy25;
-wire   [31:0] t_slice_proxy26;
-wire   [31:0] t_slice_proxy27;
-wire   [31:0] t_slice_proxy28;
-wire   [31:0] t_slice_proxy29;
-wire   [31:0] t_slice_proxy30;
-wire   [31:0] t_slice_proxy31;
-wire   [39:0] cases_slice_proxy;
-wire   [31:0] t_slice_proxy32;
-wire   [31:0] t_slice_proxy33;
-wire   [31:0] t_slice_proxy34;
-wire   [31:0] t_slice_proxy35;
-wire   [31:0] t_slice_proxy36;
-wire   [31:0] t_slice_proxy37;
-wire   [31:0] t_slice_proxy38;
-wire   [31:0] t_slice_proxy39;
-wire   [31:0] t_slice_proxy40;
-wire   [31:0] t_slice_proxy41;
-wire   [31:0] t_slice_proxy42;
-wire   [31:0] t_slice_proxy43;
-wire   [31:0] t_slice_proxy44;
-wire   [31:0] t_slice_proxy45;
-wire   [31:0] t_slice_proxy46;
-wire   [31:0] t_slice_proxy47;
-wire   [31:0] t_slice_proxy48;
-wire   [31:0] t_slice_proxy49;
-wire   [31:0] t_slice_proxy50;
-wire   [31:0] t_slice_proxy51;
-wire   [31:0] t_slice_proxy52;
-wire   [31:0] t_slice_proxy53;
-wire   [31:0] t_slice_proxy54;
-wire   [31:0] t_slice_proxy55;
-wire   [31:0] t_slice_proxy56;
-wire   [31:0] t_slice_proxy57;
-wire   [31:0] t_slice_proxy58;
-wire   [31:0] t_slice_proxy59;
-wire   [31:0] t_slice_proxy60;
-wire   [31:0] t_slice_proxy61;
-wire   [31:0] t_slice_proxy62;
-wire   [31:0] t_slice_proxy63;
-wire   [15:0] rhs_slice_proxy0;
-wire   [15:0] rhs_slice_proxy1;
-wire   [47:0] rhs_slice_proxy2;
-wire   [47:0] rhs_slice_proxy3;
-wire   [47:0] rhs_slice_proxy4;
-wire   [47:0] rhs_slice_proxy5;
-wire   [47:0] rhs_slice_proxy6;
-wire   [47:0] rhs_slice_proxy7;
-wire   [47:0] rhs_slice_proxy8;
-wire   [47:0] rhs_slice_proxy9;
-wire   [47:0] rhs_slice_proxy10;
-wire   [47:0] rhs_slice_proxy11;
-wire   [47:0] rhs_slice_proxy12;
-wire   [47:0] rhs_slice_proxy13;
-wire    [7:0] rhs_slice_proxy14;
-wire   [15:0] rhs_slice_proxy15;
-wire   [15:0] rhs_slice_proxy16;
-wire   [15:0] rhs_slice_proxy17;
-wire   [15:0] rhs_slice_proxy18;
-wire   [15:0] rhs_slice_proxy19;
-wire   [15:0] rhs_slice_proxy20;
-wire    [7:0] rhs_slice_proxy21;
-wire   [31:0] rhs_slice_proxy22;
-wire   [31:0] rhs_slice_proxy23;
-wire   [31:0] rhs_slice_proxy24;
-wire   [31:0] rhs_slice_proxy25;
-wire   [47:0] rhs_slice_proxy26;
-wire   [47:0] rhs_slice_proxy27;
-wire   [47:0] rhs_slice_proxy28;
-wire   [47:0] rhs_slice_proxy29;
-wire   [47:0] rhs_slice_proxy30;
-wire   [47:0] rhs_slice_proxy31;
-wire   [31:0] rhs_slice_proxy32;
-wire   [31:0] rhs_slice_proxy33;
-wire   [31:0] rhs_slice_proxy34;
-wire   [31:0] rhs_slice_proxy35;
-wire   [47:0] rhs_slice_proxy36;
-wire   [47:0] rhs_slice_proxy37;
-wire   [47:0] rhs_slice_proxy38;
-wire   [47:0] rhs_slice_proxy39;
-wire   [47:0] rhs_slice_proxy40;
-wire   [47:0] rhs_slice_proxy41;
-wire   [15:0] rhs_slice_proxy42;
-wire   [15:0] rhs_slice_proxy43;
-wire   [15:0] rhs_slice_proxy44;
-wire   [15:0] rhs_slice_proxy45;
-wire    [3:0] rhs_slice_proxy46;
-wire    [7:0] rhs_slice_proxy47;
-wire   [31:0] rhs_slice_proxy48;
-wire   [31:0] rhs_slice_proxy49;
-wire   [31:0] rhs_slice_proxy50;
-wire   [31:0] rhs_slice_proxy51;
-wire   [31:0] rhs_slice_proxy52;
-wire   [31:0] rhs_slice_proxy53;
-wire   [31:0] rhs_slice_proxy54;
-wire   [31:0] rhs_slice_proxy55;
-wire   [15:0] rhs_slice_proxy56;
-wire   [15:0] rhs_slice_proxy57;
-wire    [7:0] rhs_slice_proxy58;
-wire    [3:0] rhs_slice_proxy59;
-wire   [15:0] rhs_slice_proxy60;
-wire   [15:0] rhs_slice_proxy61;
-wire    [7:0] rhs_slice_proxy62;
-wire    [7:0] rhs_slice_proxy63;
-wire   [31:0] rhs_slice_proxy64;
-wire   [31:0] rhs_slice_proxy65;
-wire   [31:0] rhs_slice_proxy66;
-wire   [31:0] rhs_slice_proxy67;
-wire   [15:0] rhs_slice_proxy68;
-wire   [15:0] rhs_slice_proxy69;
-wire   [15:0] rhs_slice_proxy70;
-wire   [15:0] rhs_slice_proxy71;
-wire   [15:0] rhs_slice_proxy72;
-wire   [15:0] rhs_slice_proxy73;
-wire   [15:0] rhs_slice_proxy74;
-wire   [15:0] rhs_slice_proxy75;
-wire          rst10;
-wire          rst11;
+reg           core_tx_packetizer_fsm_from_idle = 1'd0;
+reg           core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value1 = 1'd0;
+reg           core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value_ce1 = 1'd0;
+reg    [63:0] core_tx_packetizer_header = 64'd0;
+wire          core_tx_packetizer_in_data_copy;
+reg           core_tx_packetizer_is_ongoing0 = 1'd0;
+reg           core_tx_packetizer_is_ongoing1 = 1'd0;
+reg           core_tx_packetizer_is_ongoing2 = 1'd0;
+wire          core_tx_packetizer_new_last_be;
+wire          core_tx_packetizer_sink_last;
+wire          core_tx_packetizer_sink_last_be;
+wire   [15:0] core_tx_packetizer_sink_param_checksum;
+wire   [15:0] core_tx_packetizer_sink_param_dst_port;
+wire   [15:0] core_tx_packetizer_sink_param_length;
+wire   [15:0] core_tx_packetizer_sink_param_src_port;
+wire    [7:0] core_tx_packetizer_sink_payload_data;
+reg           core_tx_packetizer_sink_payload_error = 1'd0;
+wire          core_tx_packetizer_sink_payload_last_be;
+reg           core_tx_packetizer_sink_ready = 1'd0;
+wire          core_tx_packetizer_sink_valid;
+reg           core_tx_packetizer_source_first = 1'd0;
+reg           core_tx_packetizer_source_last = 1'd0;
+reg           core_tx_packetizer_source_last_a = 1'd0;
+reg           core_tx_packetizer_source_last_b = 1'd0;
+reg           core_tx_packetizer_source_last_s = 1'd0;
+reg    [31:0] core_tx_packetizer_source_param_ip_address = 32'd0;
+reg    [15:0] core_tx_packetizer_source_param_length = 16'd0;
+reg     [7:0] core_tx_packetizer_source_param_protocol = 8'd0;
+reg     [7:0] core_tx_packetizer_source_payload_data = 8'd0;
+wire          core_tx_packetizer_source_payload_error;
+reg           core_tx_packetizer_source_payload_last_be = 1'd0;
+reg           core_tx_packetizer_source_ready = 1'd0;
+reg           core_tx_packetizer_source_valid = 1'd0;
+reg    [63:0] core_tx_packetizer_sr = 64'd0;
+reg           core_tx_packetizer_sr_load = 1'd0;
+reg           core_tx_packetizer_sr_shift = 1'd0;
+wire          core_tx_sink_sink_first;
+wire          core_tx_sink_sink_last;
+wire   [15:0] core_tx_sink_sink_param_dst_port;
+wire   [31:0] core_tx_sink_sink_param_ip_address;
+wire   [15:0] core_tx_sink_sink_param_length;
+wire   [15:0] core_tx_sink_sink_param_src_port;
+wire    [7:0] core_tx_sink_sink_payload_data;
+wire          core_tx_sink_sink_payload_error;
+wire          core_tx_sink_sink_payload_last_be;
+wire          core_tx_sink_sink_ready;
+wire          core_tx_sink_sink_valid;
+reg           core_tx_source_source_first = 1'd0;
+reg           core_tx_source_source_last = 1'd0;
+reg    [31:0] core_tx_source_source_param_ip_address = 32'd0;
+reg    [15:0] core_tx_source_source_param_length = 16'd0;
+reg     [7:0] core_tx_source_source_param_protocol = 8'd0;
+reg     [7:0] core_tx_source_source_payload_data = 8'd0;
+reg           core_tx_source_source_payload_error = 1'd0;
+reg           core_tx_source_source_payload_last_be = 1'd0;
+wire          core_tx_source_source_ready;
+reg           core_tx_source_source_valid = 1'd0;
+wire   [31:0] csrbank0_bus_errors_r;
+reg           csrbank0_bus_errors_re = 1'd0;
+wire   [31:0] csrbank0_bus_errors_w;
+reg           csrbank0_bus_errors_we = 1'd0;
+wire    [1:0] csrbank0_reset0_r;
+reg           csrbank0_reset0_re = 1'd0;
+wire    [1:0] csrbank0_reset0_w;
+reg           csrbank0_reset0_we = 1'd0;
+wire   [31:0] csrbank0_scratch0_r;
+reg           csrbank0_scratch0_re = 1'd0;
+wire   [31:0] csrbank0_scratch0_w;
+reg           csrbank0_scratch0_we = 1'd0;
+wire          csrbank0_sel;
+wire          csrbank1_crg_reset0_r;
+reg           csrbank1_crg_reset0_re = 1'd0;
+wire          csrbank1_crg_reset0_w;
+reg           csrbank1_crg_reset0_we = 1'd0;
+wire          csrbank1_mdio_r_r;
+reg           csrbank1_mdio_r_re = 1'd0;
+wire          csrbank1_mdio_r_w;
+reg           csrbank1_mdio_r_we = 1'd0;
+wire    [2:0] csrbank1_mdio_w0_r;
+reg           csrbank1_mdio_w0_re = 1'd0;
+wire    [2:0] csrbank1_mdio_w0_w;
+reg           csrbank1_mdio_w0_we = 1'd0;
+wire    [3:0] csrbank1_rx_inband_status_r;
+reg           csrbank1_rx_inband_status_re = 1'd0;
+wire    [3:0] csrbank1_rx_inband_status_w;
+reg           csrbank1_rx_inband_status_we = 1'd0;
+wire          csrbank1_sel;
+wire   [31:0] dat_r;
+wire   [31:0] dat_w;
+(* syn_keep = "true" *)
+wire          eth_rx_clk;
+wire          eth_rx_rst;
+(* syn_keep = "true" *)
+wire          eth_tx_clk;
+wire          eth_tx_rst;
+reg     [2:0] fsm_next_state = 3'd0;
+reg     [2:0] fsm_state = 3'd0;
+reg           interface0_ack = 1'd0;
+reg    [29:0] interface0_adr = 30'd0;
+wire   [13:0] interface0_bank_bus_adr;
+reg    [31:0] interface0_bank_bus_dat_r = 32'd0;
+wire   [31:0] interface0_bank_bus_dat_w;
+wire          interface0_bank_bus_re;
+wire          interface0_bank_bus_we;
+reg           interface0_cyc = 1'd0;
+reg    [31:0] interface0_dat_r = 32'd0;
+reg    [31:0] interface0_dat_w = 32'd0;
+reg     [3:0] interface0_sel = 4'd0;
+reg           interface0_stb = 1'd0;
+reg           interface0_we = 1'd0;
+reg    [13:0] interface1_adr = 14'd0;
+wire   [13:0] interface1_bank_bus_adr;
+reg    [31:0] interface1_bank_bus_dat_r = 32'd0;
+wire   [31:0] interface1_bank_bus_dat_w;
+wire          interface1_bank_bus_re;
+wire          interface1_bank_bus_we;
+wire   [31:0] interface1_dat_r;
+reg    [31:0] interface1_dat_w = 32'd0;
+reg           interface1_re = 1'd0;
+reg           interface1_we = 1'd0;
+reg     [2:0] liteetharpcache_next_state = 3'd0;
+reg     [2:0] liteetharpcache_state = 3'd0;
+reg     [1:0] liteetharprx_fsm0_next_state = 2'd0;
+reg     [1:0] liteetharprx_fsm0_state = 2'd0;
+reg           liteetharprx_fsm1_next_state = 1'd0;
+reg           liteetharprx_fsm1_state = 1'd0;
+reg     [1:0] liteetharprx_next_state = 2'd0;
+reg     [1:0] liteetharprx_state = 2'd0;
+reg     [1:0] liteetharptx_fsm0_next_state = 2'd0;
+reg     [1:0] liteetharptx_fsm0_state = 2'd0;
+reg           liteetharptx_fsm1_next_state = 1'd0;
+reg           liteetharptx_fsm1_state = 1'd0;
+reg           liteetharptx_next_state = 1'd0;
+reg           liteetharptx_state = 1'd0;
+reg     [1:0] liteethicmprx_fsm0_next_state = 2'd0;
+reg     [1:0] liteethicmprx_fsm0_state = 2'd0;
+reg           liteethicmprx_fsm1_next_state = 1'd0;
+reg           liteethicmprx_fsm1_state = 1'd0;
+reg     [1:0] liteethicmprx_next_state = 2'd0;
+reg     [1:0] liteethicmprx_state = 2'd0;
+reg     [1:0] liteethicmptx_fsm0_next_state = 2'd0;
+reg     [1:0] liteethicmptx_fsm0_state = 2'd0;
+reg           liteethicmptx_fsm1_next_state = 1'd0;
+reg           liteethicmptx_fsm1_state = 1'd0;
+reg           liteethicmptx_next_state = 1'd0;
+reg           liteethicmptx_state = 1'd0;
+reg           liteethip_first = 1'd1;
+reg           liteethip_grant = 1'd0;
+wire          liteethip_last;
+reg     [1:0] liteethip_liteethiprx_fsm0_next_state = 2'd0;
+reg     [1:0] liteethip_liteethiprx_fsm0_state = 2'd0;
+reg           liteethip_liteethiprx_fsm1_next_state = 1'd0;
+reg           liteethip_liteethiprx_fsm1_state = 1'd0;
+reg     [1:0] liteethip_liteethiprx_next_state = 2'd0;
+reg     [1:0] liteethip_liteethiprx_state = 2'd0;
+reg     [1:0] liteethip_liteethiptx_fsm0_next_state = 2'd0;
+reg     [1:0] liteethip_liteethiptx_fsm0_state = 2'd0;
+reg           liteethip_liteethiptx_fsm1_next_state = 1'd0;
+reg           liteethip_liteethiptx_fsm1_state = 1'd0;
+reg     [2:0] liteethip_liteethiptx_next_state = 3'd0;
+reg     [2:0] liteethip_liteethiptx_state = 3'd0;
+wire          liteethip_ongoing0;
+reg           liteethip_ongoing1 = 1'd0;
+reg     [1:0] liteethip_request = 2'd0;
+reg     [1:0] liteethip_sel0 = 2'd0;
+reg     [1:0] liteethip_sel1 = 2'd0;
+reg           liteethip_sel_locked = 1'd0;
+reg     [1:0] liteethip_sel_ongoing = 2'd0;
+reg           liteethip_status0_first = 1'd1;
+wire          liteethip_status0_last;
+wire          liteethip_status0_ongoing0;
+reg           liteethip_status0_ongoing1 = 1'd0;
+reg           liteethip_status1_first = 1'd1;
+wire          liteethip_status1_last;
+wire          liteethip_status1_ongoing0;
+reg           liteethip_status1_ongoing1 = 1'd0;
+reg           liteethmac_first = 1'd1;
+reg     [1:0] liteethmac_fsm0_next_state0 = 2'd0;
+reg     [1:0] liteethmac_fsm0_next_state1 = 2'd0;
+reg     [1:0] liteethmac_fsm0_state0 = 2'd0;
+reg     [1:0] liteethmac_fsm0_state1 = 2'd0;
+reg           liteethmac_fsm1_next_state0 = 1'd0;
+reg           liteethmac_fsm1_next_state1 = 1'd0;
+reg           liteethmac_fsm1_state0 = 1'd0;
+reg           liteethmac_fsm1_state1 = 1'd0;
+reg           liteethmac_grant = 1'd0;
+wire          liteethmac_last;
+wire          liteethmac_ongoing0;
+reg           liteethmac_ongoing1 = 1'd0;
+reg     [1:0] liteethmac_request = 2'd0;
+reg     [1:0] liteethmac_rxdatapath_bufferizeendpoints_next_state = 2'd0;
+reg     [1:0] liteethmac_rxdatapath_bufferizeendpoints_state = 2'd0;
+reg           liteethmac_rxdatapath_liteethmacpreamblechecker_next_state = 1'd0;
+reg           liteethmac_rxdatapath_liteethmacpreamblechecker_state = 1'd0;
+reg     [1:0] liteethmac_sel0 = 2'd0;
+reg     [1:0] liteethmac_sel1 = 2'd0;
+reg           liteethmac_sel_locked = 1'd0;
+reg     [1:0] liteethmac_sel_ongoing = 2'd0;
+reg           liteethmac_status0_first = 1'd1;
+wire          liteethmac_status0_last;
+wire          liteethmac_status0_ongoing0;
+reg           liteethmac_status0_ongoing1 = 1'd0;
+reg           liteethmac_status1_first = 1'd1;
+wire          liteethmac_status1_last;
+wire          liteethmac_status1_ongoing0;
+reg           liteethmac_status1_ongoing1 = 1'd0;
+reg     [1:0] liteethmac_txdatapath_bufferizeendpoints_next_state = 2'd0;
+reg     [1:0] liteethmac_txdatapath_bufferizeendpoints_state = 2'd0;
+reg           liteethmac_txdatapath_liteethmacgap_next_state = 1'd0;
+reg           liteethmac_txdatapath_liteethmacgap_state = 1'd0;
+reg           liteethmac_txdatapath_liteethmacpaddinginserter_next_state = 1'd0;
+reg           liteethmac_txdatapath_liteethmacpaddinginserter_state = 1'd0;
+reg     [1:0] liteethmac_txdatapath_liteethmacpreambleinserter_next_state = 2'd0;
+reg     [1:0] liteethmac_txdatapath_liteethmacpreambleinserter_state = 2'd0;
+reg           liteethudp_first = 1'd1;
+wire          liteethudp_last;
+reg     [1:0] liteethudp_liteethudprx_fsm0_next_state = 2'd0;
+reg     [1:0] liteethudp_liteethudprx_fsm0_state = 2'd0;
+reg           liteethudp_liteethudprx_fsm1_next_state = 1'd0;
+reg           liteethudp_liteethudprx_fsm1_state = 1'd0;
+reg     [1:0] liteethudp_liteethudprx_next_state = 2'd0;
+reg     [1:0] liteethudp_liteethudprx_state = 2'd0;
+reg     [1:0] liteethudp_liteethudptx_fsm0_next_state = 2'd0;
+reg     [1:0] liteethudp_liteethudptx_fsm0_state = 2'd0;
+reg           liteethudp_liteethudptx_fsm1_next_state = 1'd0;
+reg           liteethudp_liteethudptx_fsm1_state = 1'd0;
+reg           liteethudp_liteethudptx_next_state = 1'd0;
+reg           liteethudp_liteethudptx_state = 1'd0;
+wire          liteethudp_ongoing0;
+reg           liteethudp_ongoing1 = 1'd0;
+reg           liteethudp_sel0 = 1'd0;
+reg           liteethudp_sel1 = 1'd0;
+reg           liteethudp_sel_locked = 1'd0;
+reg           liteethudp_sel_ongoing = 1'd0;
+reg           liteethudpstreamer_next_state = 1'd0;
+reg           liteethudpstreamer_state = 1'd0;
 (* syn_no_retiming = "true" *)
 reg           multiregimpl0_regs0 = 1'd0;
 (* syn_no_retiming = "true" *)
@@ -2173,45 +1985,396 @@ reg     [5:0] multiregimpl5_regs1 = 6'd0;
 reg     [5:0] multiregimpl6_regs0 = 6'd0;
 (* syn_no_retiming = "true" *)
 reg     [5:0] multiregimpl6_regs1 = 6'd0;
+wire          por_clk;
+wire          re;
+wire          rst10;
+wire          rst11;
+(* syn_keep = "true" *)
+wire          sys_clk;
+wire          sys_rst;
+reg           udpcore_ethphy__r_re = 1'd0;
+reg           udpcore_ethphy__r_status = 1'd0;
+wire          udpcore_ethphy__r_we;
+reg           udpcore_ethphy__w_re = 1'd0;
+reg     [2:0] udpcore_ethphy__w_storage = 3'd0;
+reg     [1:0] udpcore_ethphy_clock_speed = 2'd0;
+wire          udpcore_ethphy_data_oe;
+wire          udpcore_ethphy_data_r;
+wire          udpcore_ethphy_data_w;
+reg           udpcore_ethphy_duplex_status = 1'd0;
+wire          udpcore_ethphy_eth_tx_clk_o;
+wire          udpcore_ethphy_last;
+reg           udpcore_ethphy_link_status = 1'd0;
+wire          udpcore_ethphy_mdc;
+wire          udpcore_ethphy_oe;
+reg           udpcore_ethphy_r = 1'd0;
+reg           udpcore_ethphy_re = 1'd0;
+wire          udpcore_ethphy_reset;
+reg           udpcore_ethphy_reset_re = 1'd0;
+reg           udpcore_ethphy_reset_storage = 1'd0;
+wire    [1:0] udpcore_ethphy_rx_ctl;
+wire          udpcore_ethphy_rx_ctl_delayf;
+reg     [1:0] udpcore_ethphy_rx_ctl_reg = 2'd0;
+reg     [1:0] udpcore_ethphy_rx_ctl_reg_d = 2'd0;
+wire    [7:0] udpcore_ethphy_rx_data;
+wire    [3:0] udpcore_ethphy_rx_data_delayf;
+reg     [7:0] udpcore_ethphy_rx_data_reg = 8'd0;
+wire          udpcore_ethphy_sink_first;
+wire          udpcore_ethphy_sink_last;
+wire    [7:0] udpcore_ethphy_sink_payload_data;
+wire          udpcore_ethphy_sink_payload_error;
+wire          udpcore_ethphy_sink_payload_last_be;
+wire          udpcore_ethphy_sink_ready;
+wire          udpcore_ethphy_sink_valid;
+reg           udpcore_ethphy_source_first = 1'd0;
+wire          udpcore_ethphy_source_last;
+reg     [7:0] udpcore_ethphy_source_payload_data = 8'd0;
+reg           udpcore_ethphy_source_payload_error = 1'd0;
+reg           udpcore_ethphy_source_payload_last_be = 1'd0;
+wire          udpcore_ethphy_source_ready;
+reg           udpcore_ethphy_source_valid = 1'd0;
+reg     [3:0] udpcore_ethphy_status = 4'd0;
+wire          udpcore_ethphy_tx_ctl_oddrx1f;
+wire    [3:0] udpcore_ethphy_tx_data_oddrx1f;
+wire          udpcore_ethphy_w;
+wire          udpcore_ethphy_we;
+reg           udpcore_int_rst = 1'd1;
+wire          udpcore_internal_port_sink_first;
+wire          udpcore_internal_port_sink_last;
+wire   [15:0] udpcore_internal_port_sink_param_dst_port;
+wire   [31:0] udpcore_internal_port_sink_param_ip_address;
+wire   [15:0] udpcore_internal_port_sink_param_length;
+wire   [15:0] udpcore_internal_port_sink_param_src_port;
+wire    [7:0] udpcore_internal_port_sink_payload_data;
+wire          udpcore_internal_port_sink_payload_error;
+wire          udpcore_internal_port_sink_payload_last_be;
+wire          udpcore_internal_port_sink_ready;
+wire          udpcore_internal_port_sink_valid;
+reg           udpcore_internal_port_source_first = 1'd0;
+reg           udpcore_internal_port_source_last = 1'd0;
+reg    [15:0] udpcore_internal_port_source_param_dst_port = 16'd0;
+reg    [31:0] udpcore_internal_port_source_param_ip_address = 32'd0;
+reg    [15:0] udpcore_internal_port_source_param_length = 16'd0;
+reg    [15:0] udpcore_internal_port_source_param_src_port = 16'd0;
+reg     [7:0] udpcore_internal_port_source_payload_data = 8'd0;
+reg           udpcore_internal_port_source_payload_error = 1'd0;
+reg           udpcore_internal_port_source_payload_last_be = 1'd0;
+wire          udpcore_internal_port_source_ready;
+reg           udpcore_internal_port_source_valid = 1'd0;
+wire          udpcore_rx_cdc_sink_first;
+wire          udpcore_rx_cdc_sink_last;
+wire   [15:0] udpcore_rx_cdc_sink_param_dst_port;
+wire   [31:0] udpcore_rx_cdc_sink_param_ip_address;
+wire   [15:0] udpcore_rx_cdc_sink_param_length;
+wire   [15:0] udpcore_rx_cdc_sink_param_src_port;
+wire    [7:0] udpcore_rx_cdc_sink_payload_data;
+wire          udpcore_rx_cdc_sink_payload_error;
+wire          udpcore_rx_cdc_sink_payload_last_be;
+wire          udpcore_rx_cdc_sink_ready;
+wire          udpcore_rx_cdc_sink_valid;
+wire          udpcore_rx_cdc_source_first;
+wire          udpcore_rx_cdc_source_last;
+wire   [15:0] udpcore_rx_cdc_source_param_dst_port;
+wire   [31:0] udpcore_rx_cdc_source_param_ip_address;
+wire   [15:0] udpcore_rx_cdc_source_param_length;
+wire   [15:0] udpcore_rx_cdc_source_param_src_port;
+wire    [7:0] udpcore_rx_cdc_source_payload_data;
+wire          udpcore_rx_cdc_source_payload_error;
+wire          udpcore_rx_cdc_source_payload_last_be;
+wire          udpcore_rx_cdc_source_ready;
+wire          udpcore_rx_cdc_source_valid;
+wire          udpcore_rx_converter_converter_sink_first;
+wire          udpcore_rx_converter_converter_sink_last;
+wire    [9:0] udpcore_rx_converter_converter_sink_payload_data;
+wire          udpcore_rx_converter_converter_sink_ready;
+wire          udpcore_rx_converter_converter_sink_valid;
+wire          udpcore_rx_converter_converter_source_first;
+wire          udpcore_rx_converter_converter_source_last;
+wire    [9:0] udpcore_rx_converter_converter_source_payload_data;
+wire          udpcore_rx_converter_converter_source_payload_valid_token_count;
+wire          udpcore_rx_converter_converter_source_ready;
+wire          udpcore_rx_converter_converter_source_valid;
+wire          udpcore_rx_converter_sink_first;
+wire          udpcore_rx_converter_sink_last;
+wire   [15:0] udpcore_rx_converter_sink_param_dst_port;
+wire   [31:0] udpcore_rx_converter_sink_param_ip_address;
+wire   [15:0] udpcore_rx_converter_sink_param_length;
+wire   [15:0] udpcore_rx_converter_sink_param_src_port;
+wire    [7:0] udpcore_rx_converter_sink_payload_data;
+wire          udpcore_rx_converter_sink_payload_error;
+wire          udpcore_rx_converter_sink_payload_last_be;
+wire          udpcore_rx_converter_sink_ready;
+wire          udpcore_rx_converter_sink_valid;
+wire          udpcore_rx_converter_source_first;
+wire          udpcore_rx_converter_source_last;
+wire   [15:0] udpcore_rx_converter_source_param_dst_port;
+wire   [31:0] udpcore_rx_converter_source_param_ip_address;
+wire   [15:0] udpcore_rx_converter_source_param_length;
+wire   [15:0] udpcore_rx_converter_source_param_src_port;
+wire    [7:0] udpcore_rx_converter_source_payload_data;
+wire          udpcore_rx_converter_source_payload_error;
+wire          udpcore_rx_converter_source_payload_last_be;
+wire          udpcore_rx_converter_source_ready;
+wire          udpcore_rx_converter_source_source_first;
+wire          udpcore_rx_converter_source_source_last;
+wire    [9:0] udpcore_rx_converter_source_source_payload_data;
+wire          udpcore_rx_converter_source_source_ready;
+wire          udpcore_rx_converter_source_source_valid;
+wire          udpcore_rx_converter_source_valid;
+reg           udpcore_rx_enable = 1'd1;
+reg     [5:0] udpcore_rx_fifo_consume = 6'd0;
+wire          udpcore_rx_fifo_do_read;
+wire          udpcore_rx_fifo_fifo_in_first;
+wire          udpcore_rx_fifo_fifo_in_last;
+wire    [7:0] udpcore_rx_fifo_fifo_in_payload_data;
+wire          udpcore_rx_fifo_fifo_in_payload_error;
+wire          udpcore_rx_fifo_fifo_out_first;
+wire          udpcore_rx_fifo_fifo_out_last;
+wire    [7:0] udpcore_rx_fifo_fifo_out_payload_data;
+wire          udpcore_rx_fifo_fifo_out_payload_error;
+reg     [6:0] udpcore_rx_fifo_level0 = 7'd0;
+wire    [6:0] udpcore_rx_fifo_level1;
+reg     [5:0] udpcore_rx_fifo_produce = 6'd0;
+wire    [5:0] udpcore_rx_fifo_rdport_adr;
+wire   [10:0] udpcore_rx_fifo_rdport_dat_r;
+wire          udpcore_rx_fifo_rdport_re;
+wire          udpcore_rx_fifo_re;
+reg           udpcore_rx_fifo_readable = 1'd0;
+reg           udpcore_rx_fifo_replace = 1'd0;
+reg           udpcore_rx_fifo_sink_first = 1'd0;
+wire          udpcore_rx_fifo_sink_last;
+wire    [7:0] udpcore_rx_fifo_sink_payload_data;
+wire          udpcore_rx_fifo_sink_payload_error;
+wire          udpcore_rx_fifo_sink_ready;
+wire          udpcore_rx_fifo_sink_valid;
+wire          udpcore_rx_fifo_source_first;
+wire          udpcore_rx_fifo_source_last;
+wire    [7:0] udpcore_rx_fifo_source_payload_data;
+wire          udpcore_rx_fifo_source_payload_error;
+wire          udpcore_rx_fifo_source_ready;
+wire          udpcore_rx_fifo_source_valid;
+wire   [10:0] udpcore_rx_fifo_syncfifo_din;
+wire   [10:0] udpcore_rx_fifo_syncfifo_dout;
+wire          udpcore_rx_fifo_syncfifo_re;
+wire          udpcore_rx_fifo_syncfifo_readable;
+wire          udpcore_rx_fifo_syncfifo_we;
+wire          udpcore_rx_fifo_syncfifo_writable;
+reg     [5:0] udpcore_rx_fifo_wrport_adr = 6'd0;
+wire   [10:0] udpcore_rx_fifo_wrport_dat_r;
+wire   [10:0] udpcore_rx_fifo_wrport_dat_w;
+wire          udpcore_rx_fifo_wrport_we;
+wire          udpcore_rx_sink_sink_first;
+wire          udpcore_rx_sink_sink_last;
+wire   [15:0] udpcore_rx_sink_sink_param_dst_port;
+wire   [31:0] udpcore_rx_sink_sink_param_ip_address;
+wire   [15:0] udpcore_rx_sink_sink_param_length;
+wire   [15:0] udpcore_rx_sink_sink_param_src_port;
+wire    [7:0] udpcore_rx_sink_sink_payload_data;
+wire          udpcore_rx_sink_sink_payload_error;
+wire          udpcore_rx_sink_sink_payload_last_be;
+wire          udpcore_rx_sink_sink_ready;
+wire          udpcore_rx_sink_sink_valid;
+wire          udpcore_rx_source_source_first;
+wire          udpcore_rx_source_source_last;
+wire    [7:0] udpcore_rx_source_source_payload_data;
+wire          udpcore_rx_source_source_payload_error;
+wire          udpcore_rx_source_source_ready;
+wire          udpcore_rx_source_source_valid;
+reg    [15:0] udpcore_rx_udp_port = udp0_udp_port;
+reg           udpcore_rx_valid = 1'd1;
+wire          udpcore_tx_cdc_sink_first;
+wire          udpcore_tx_cdc_sink_last;
+wire   [15:0] udpcore_tx_cdc_sink_param_dst_port;
+wire   [31:0] udpcore_tx_cdc_sink_param_ip_address;
+wire   [15:0] udpcore_tx_cdc_sink_param_length;
+wire   [15:0] udpcore_tx_cdc_sink_param_src_port;
+wire    [7:0] udpcore_tx_cdc_sink_payload_data;
+wire          udpcore_tx_cdc_sink_payload_error;
+wire          udpcore_tx_cdc_sink_payload_last_be;
+wire          udpcore_tx_cdc_sink_ready;
+wire          udpcore_tx_cdc_sink_valid;
+wire          udpcore_tx_cdc_source_first;
+wire          udpcore_tx_cdc_source_last;
+wire   [15:0] udpcore_tx_cdc_source_param_dst_port;
+wire   [31:0] udpcore_tx_cdc_source_param_ip_address;
+wire   [15:0] udpcore_tx_cdc_source_param_length;
+wire   [15:0] udpcore_tx_cdc_source_param_src_port;
+wire    [7:0] udpcore_tx_cdc_source_payload_data;
+wire          udpcore_tx_cdc_source_payload_error;
+wire          udpcore_tx_cdc_source_payload_last_be;
+wire          udpcore_tx_cdc_source_ready;
+wire          udpcore_tx_cdc_source_valid;
+wire          udpcore_tx_converter_converter_sink_first;
+wire          udpcore_tx_converter_converter_sink_last;
+wire    [9:0] udpcore_tx_converter_converter_sink_payload_data;
+wire          udpcore_tx_converter_converter_sink_ready;
+wire          udpcore_tx_converter_converter_sink_valid;
+wire          udpcore_tx_converter_converter_source_first;
+wire          udpcore_tx_converter_converter_source_last;
+wire    [9:0] udpcore_tx_converter_converter_source_payload_data;
+wire          udpcore_tx_converter_converter_source_payload_valid_token_count;
+wire          udpcore_tx_converter_converter_source_ready;
+wire          udpcore_tx_converter_converter_source_valid;
+wire          udpcore_tx_converter_sink_first;
+wire          udpcore_tx_converter_sink_last;
+wire   [15:0] udpcore_tx_converter_sink_param_dst_port;
+wire   [31:0] udpcore_tx_converter_sink_param_ip_address;
+wire   [15:0] udpcore_tx_converter_sink_param_length;
+wire   [15:0] udpcore_tx_converter_sink_param_src_port;
+wire    [7:0] udpcore_tx_converter_sink_payload_data;
+wire          udpcore_tx_converter_sink_payload_error;
+wire          udpcore_tx_converter_sink_payload_last_be;
+wire          udpcore_tx_converter_sink_ready;
+wire          udpcore_tx_converter_sink_valid;
+wire          udpcore_tx_converter_source_first;
+wire          udpcore_tx_converter_source_last;
+wire   [15:0] udpcore_tx_converter_source_param_dst_port;
+wire   [31:0] udpcore_tx_converter_source_param_ip_address;
+wire   [15:0] udpcore_tx_converter_source_param_length;
+wire   [15:0] udpcore_tx_converter_source_param_src_port;
+wire    [7:0] udpcore_tx_converter_source_payload_data;
+wire          udpcore_tx_converter_source_payload_error;
+wire          udpcore_tx_converter_source_payload_last_be;
+wire          udpcore_tx_converter_source_ready;
+wire          udpcore_tx_converter_source_source_first;
+wire          udpcore_tx_converter_source_source_last;
+wire    [9:0] udpcore_tx_converter_source_source_payload_data;
+wire          udpcore_tx_converter_source_source_ready;
+wire          udpcore_tx_converter_source_source_valid;
+wire          udpcore_tx_converter_source_valid;
+reg     [6:0] udpcore_tx_counter = 7'd0;
+reg     [6:0] udpcore_tx_counter_next_value0 = 7'd0;
+reg           udpcore_tx_counter_next_value_ce0 = 1'd0;
+reg           udpcore_tx_enable = 1'd1;
+reg     [5:0] udpcore_tx_fifo_consume = 6'd0;
+wire          udpcore_tx_fifo_do_read;
+wire          udpcore_tx_fifo_fifo_in_first;
+wire          udpcore_tx_fifo_fifo_in_last;
+wire    [7:0] udpcore_tx_fifo_fifo_in_payload_data;
+wire          udpcore_tx_fifo_fifo_out_first;
+wire          udpcore_tx_fifo_fifo_out_last;
+wire    [7:0] udpcore_tx_fifo_fifo_out_payload_data;
+reg     [6:0] udpcore_tx_fifo_level0 = 7'd0;
+wire    [6:0] udpcore_tx_fifo_level1;
+reg     [5:0] udpcore_tx_fifo_produce = 6'd0;
+wire    [5:0] udpcore_tx_fifo_rdport_adr;
+wire    [9:0] udpcore_tx_fifo_rdport_dat_r;
+wire          udpcore_tx_fifo_rdport_re;
+wire          udpcore_tx_fifo_re;
+reg           udpcore_tx_fifo_readable = 1'd0;
+reg           udpcore_tx_fifo_replace = 1'd0;
+wire          udpcore_tx_fifo_sink_first;
+wire          udpcore_tx_fifo_sink_last;
+wire    [7:0] udpcore_tx_fifo_sink_payload_data;
+wire          udpcore_tx_fifo_sink_ready;
+wire          udpcore_tx_fifo_sink_valid;
+wire          udpcore_tx_fifo_source_first;
+wire          udpcore_tx_fifo_source_last;
+wire    [7:0] udpcore_tx_fifo_source_payload_data;
+reg           udpcore_tx_fifo_source_ready = 1'd0;
+wire          udpcore_tx_fifo_source_valid;
+wire    [9:0] udpcore_tx_fifo_syncfifo_din;
+wire    [9:0] udpcore_tx_fifo_syncfifo_dout;
+wire          udpcore_tx_fifo_syncfifo_re;
+wire          udpcore_tx_fifo_syncfifo_readable;
+wire          udpcore_tx_fifo_syncfifo_we;
+wire          udpcore_tx_fifo_syncfifo_writable;
+reg     [5:0] udpcore_tx_fifo_wrport_adr = 6'd0;
+wire    [9:0] udpcore_tx_fifo_wrport_dat_r;
+wire    [9:0] udpcore_tx_fifo_wrport_dat_w;
+wire          udpcore_tx_fifo_wrport_we;
+reg    [31:0] udpcore_tx_ip_address0 = udp0_ip_address;
+reg    [31:0] udpcore_tx_ip_address1 = 32'd0;
+reg    [31:0] udpcore_tx_ip_address1_next_value1 = 32'd0;
+reg           udpcore_tx_ip_address1_next_value_ce1 = 1'd0;
+reg     [6:0] udpcore_tx_level = 7'd0;
+reg     [6:0] udpcore_tx_level_next_value3 = 7'd0;
+reg           udpcore_tx_level_next_value_ce3 = 1'd0;
+wire          udpcore_tx_reset;
+reg           udpcore_tx_sink_sink_first = 1'd0;
+wire          udpcore_tx_sink_sink_last;
+wire    [7:0] udpcore_tx_sink_sink_payload_data;
+wire          udpcore_tx_sink_sink_ready;
+wire          udpcore_tx_sink_sink_valid;
+reg           udpcore_tx_source_source_first = 1'd0;
+reg           udpcore_tx_source_source_last = 1'd0;
+reg    [15:0] udpcore_tx_source_source_param_dst_port = 16'd0;
+reg    [31:0] udpcore_tx_source_source_param_ip_address = 32'd0;
+reg    [15:0] udpcore_tx_source_source_param_length = 16'd0;
+reg    [15:0] udpcore_tx_source_source_param_src_port = 16'd0;
+reg     [7:0] udpcore_tx_source_source_payload_data = 8'd0;
+reg           udpcore_tx_source_source_payload_error = 1'd0;
+reg           udpcore_tx_source_source_payload_last_be = 1'd0;
+wire          udpcore_tx_source_source_ready;
+reg           udpcore_tx_source_source_valid = 1'd0;
+reg    [15:0] udpcore_tx_udp_port0 = udp0_udp_port;
+reg    [15:0] udpcore_tx_udp_port1 = 16'd0;
+reg    [15:0] udpcore_tx_udp_port1_next_value2 = 16'd0;
+reg           udpcore_tx_udp_port1_next_value_ce2 = 1'd0;
+reg           udpcore_udpcore_bus_error = 1'd0;
+reg    [31:0] udpcore_udpcore_bus_errors = 32'd0;
+reg           udpcore_udpcore_bus_errors_re = 1'd0;
+wire   [31:0] udpcore_udpcore_bus_errors_status;
+wire          udpcore_udpcore_bus_errors_we;
+wire          udpcore_udpcore_cpu_rst;
+reg           udpcore_udpcore_reset_re = 1'd0;
+reg     [1:0] udpcore_udpcore_reset_storage = 2'd0;
+reg           udpcore_udpcore_scratch_re = 1'd0;
+reg    [31:0] udpcore_udpcore_scratch_storage = 32'd305419896;
+reg           udpcore_udpcore_soc_rst = 1'd0;
+wire          udpcore_user_port_sink_first;
+wire          udpcore_user_port_sink_last;
+wire   [15:0] udpcore_user_port_sink_param_dst_port;
+wire   [31:0] udpcore_user_port_sink_param_ip_address;
+wire   [15:0] udpcore_user_port_sink_param_length;
+wire   [15:0] udpcore_user_port_sink_param_src_port;
+wire    [7:0] udpcore_user_port_sink_payload_data;
+wire          udpcore_user_port_sink_payload_error;
+wire          udpcore_user_port_sink_payload_last_be;
+wire          udpcore_user_port_sink_ready;
+wire          udpcore_user_port_sink_valid;
+wire          udpcore_user_port_source_first;
+wire          udpcore_user_port_source_last;
+wire   [15:0] udpcore_user_port_source_param_dst_port;
+wire   [31:0] udpcore_user_port_source_param_ip_address;
+wire   [15:0] udpcore_user_port_source_param_length;
+wire   [15:0] udpcore_user_port_source_param_src_port;
+wire    [7:0] udpcore_user_port_source_payload_data;
+wire          udpcore_user_port_source_payload_error;
+wire          udpcore_user_port_source_payload_last_be;
+wire          udpcore_user_port_source_ready;
+wire          udpcore_user_port_source_valid;
+wire          we;
+reg           wishbone2csr_next_state = 1'd0;
+reg           wishbone2csr_state = 1'd0;
 
 //------------------------------------------------------------------------------
 // Combinatorial Logic
 //------------------------------------------------------------------------------
 
-assign udp_streamer_tx_sink_sink_valid = udp0_sink_valid;
-assign udp_streamer_tx_sink_sink_last = udp0_sink_last;
-assign udp0_sink_ready = udp_streamer_tx_sink_sink_ready;
-assign udp_streamer_tx_sink_sink_payload_data = udp0_sink_data;
-assign udp0_source_valid = udp_streamer_rx_source_source_valid;
-assign udp0_source_last = udp_streamer_rx_source_source_last;
-assign udp_streamer_rx_source_source_ready = udp0_source_ready;
-assign udp0_source_data = udp_streamer_rx_source_source_payload_data;
-assign udp0_source_error = udp_streamer_rx_source_source_payload_error;
-assign udpcore_bus_errors_status = udpcore_bus_errors;
-always @(*) begin
-    udpcore_soc_rst <= 1'd0;
-    if (udpcore_reset_re) begin
-        udpcore_soc_rst <= udpcore_reset_storage[0];
-    end
-end
-assign udpcore_cpu_rst = udpcore_reset_storage[1];
-assign csrbank0_reset0_w = udpcore_reset_storage[1:0];
-assign csrbank0_scratch0_w = udpcore_scratch_storage[31:0];
-assign csrbank0_bus_errors_w = udpcore_bus_errors_status[31:0];
-assign udpcore_bus_errors_we = csrbank0_bus_errors_we;
+assign udpcore_tx_sink_sink_valid = udp0_sink_valid;
+assign udpcore_tx_sink_sink_last = udp0_sink_last;
+assign udp0_sink_ready = udpcore_tx_sink_sink_ready;
+assign udpcore_tx_sink_sink_payload_data = udp0_sink_data;
+assign udp0_source_valid = udpcore_rx_source_source_valid;
+assign udp0_source_last = udpcore_rx_source_source_last;
+assign udpcore_rx_source_source_ready = udp0_source_ready;
+assign udp0_source_data = udpcore_rx_source_source_payload_data;
+assign udp0_source_error = udpcore_rx_source_source_payload_error;
+assign udpcore_udpcore_bus_errors_status = udpcore_udpcore_bus_errors;
 assign sys_clk = sys_clock;
 assign por_clk = sys_clock;
-assign sys_rst = int_rst;
-assign eth_rx_clk = rgmii_eth_clocks_rx;
+assign sys_rst = udpcore_int_rst;
+assign eth_rx_clk = rgmii_clocks_rx;
 assign eth_tx_clk = eth_rx_clk;
-assign ethphy_reset = ethphy_reset_storage;
-assign rgmii_eth_rst_n = (~ethphy_reset);
-assign ethphy_sink_ready = 1'd1;
-assign ethphy_last = ((~ethphy_rx_ctl_reg[0]) & ethphy_rx_ctl_reg_d[0]);
-assign ethphy_source_last = ethphy_last;
-assign rgmii_eth_mdc = ethphy__w_storage[0];
-assign ethphy_data_oe = ethphy__w_storage[1];
-assign ethphy_data_w = ethphy__w_storage[2];
+assign udpcore_ethphy_reset = udpcore_ethphy_reset_storage;
+assign rgmii_rst_n = (~udpcore_ethphy_reset);
+assign udpcore_ethphy_sink_ready = 1'd1;
+assign udpcore_ethphy_last = ((~udpcore_ethphy_rx_ctl_reg[0]) & udpcore_ethphy_rx_ctl_reg_d[0]);
+assign udpcore_ethphy_source_last = udpcore_ethphy_last;
+assign rgmii_mdc = udpcore_ethphy__w_storage[0];
+assign udpcore_ethphy_data_oe = udpcore_ethphy__w_storage[1];
+assign udpcore_ethphy_data_w = udpcore_ethphy__w_storage[2];
 assign core_mac_packetizer_sink_valid = core_mac_crossbar_source_valid;
 assign core_mac_crossbar_source_ready = core_mac_packetizer_sink_ready;
 assign core_mac_packetizer_sink_first = core_mac_crossbar_source_first;
@@ -2246,77 +2409,77 @@ assign core_mac_crossbar_sink_payload_target_mac = core_mac_depacketizer_source_
 assign core_mac_crossbar_sink_payload_data = core_mac_depacketizer_source_payload_data;
 assign core_mac_crossbar_sink_payload_last_be = core_mac_depacketizer_source_payload_last_be;
 assign core_mac_crossbar_sink_payload_error = core_mac_depacketizer_source_payload_error;
-assign core_mac_core_tx_cdc_cdc_sink_valid = core_mac_core_tx_cdc_sink_sink_valid;
-assign core_mac_core_tx_cdc_sink_sink_ready = core_mac_core_tx_cdc_cdc_sink_ready;
-assign core_mac_core_tx_cdc_cdc_sink_first = core_mac_core_tx_cdc_sink_sink_first;
-assign core_mac_core_tx_cdc_cdc_sink_last = core_mac_core_tx_cdc_sink_sink_last;
-assign core_mac_core_tx_cdc_cdc_sink_payload_data = core_mac_core_tx_cdc_sink_sink_payload_data;
-assign core_mac_core_tx_cdc_cdc_sink_payload_last_be = core_mac_core_tx_cdc_sink_sink_payload_last_be;
-assign core_mac_core_tx_cdc_cdc_sink_payload_error = core_mac_core_tx_cdc_sink_sink_payload_error;
-assign core_mac_core_tx_cdc_source_source_valid = core_mac_core_tx_cdc_cdc_source_valid;
-assign core_mac_core_tx_cdc_cdc_source_ready = core_mac_core_tx_cdc_source_source_ready;
-assign core_mac_core_tx_cdc_source_source_first = core_mac_core_tx_cdc_cdc_source_first;
-assign core_mac_core_tx_cdc_source_source_last = core_mac_core_tx_cdc_cdc_source_last;
-assign core_mac_core_tx_cdc_source_source_payload_data = core_mac_core_tx_cdc_cdc_source_payload_data;
-assign core_mac_core_tx_cdc_source_source_payload_last_be = core_mac_core_tx_cdc_cdc_source_payload_last_be;
-assign core_mac_core_tx_cdc_source_source_payload_error = core_mac_core_tx_cdc_cdc_source_payload_error;
-assign core_mac_core_tx_cdc_cdc_asyncfifo_din = {core_mac_core_tx_cdc_cdc_fifo_in_last, core_mac_core_tx_cdc_cdc_fifo_in_first, core_mac_core_tx_cdc_cdc_fifo_in_payload_error, core_mac_core_tx_cdc_cdc_fifo_in_payload_last_be, core_mac_core_tx_cdc_cdc_fifo_in_payload_data};
-assign {core_mac_core_tx_cdc_cdc_fifo_out_last, core_mac_core_tx_cdc_cdc_fifo_out_first, core_mac_core_tx_cdc_cdc_fifo_out_payload_error, core_mac_core_tx_cdc_cdc_fifo_out_payload_last_be, core_mac_core_tx_cdc_cdc_fifo_out_payload_data} = core_mac_core_tx_cdc_cdc_asyncfifo_dout;
-assign core_mac_core_tx_cdc_cdc_sink_ready = core_mac_core_tx_cdc_cdc_asyncfifo_writable;
-assign core_mac_core_tx_cdc_cdc_asyncfifo_we = core_mac_core_tx_cdc_cdc_sink_valid;
-assign core_mac_core_tx_cdc_cdc_fifo_in_first = core_mac_core_tx_cdc_cdc_sink_first;
-assign core_mac_core_tx_cdc_cdc_fifo_in_last = core_mac_core_tx_cdc_cdc_sink_last;
-assign core_mac_core_tx_cdc_cdc_fifo_in_payload_data = core_mac_core_tx_cdc_cdc_sink_payload_data;
-assign core_mac_core_tx_cdc_cdc_fifo_in_payload_last_be = core_mac_core_tx_cdc_cdc_sink_payload_last_be;
-assign core_mac_core_tx_cdc_cdc_fifo_in_payload_error = core_mac_core_tx_cdc_cdc_sink_payload_error;
-assign core_mac_core_tx_cdc_cdc_source_valid = core_mac_core_tx_cdc_cdc_asyncfifo_readable;
-assign core_mac_core_tx_cdc_cdc_source_first = core_mac_core_tx_cdc_cdc_fifo_out_first;
-assign core_mac_core_tx_cdc_cdc_source_last = core_mac_core_tx_cdc_cdc_fifo_out_last;
-assign core_mac_core_tx_cdc_cdc_source_payload_data = core_mac_core_tx_cdc_cdc_fifo_out_payload_data;
-assign core_mac_core_tx_cdc_cdc_source_payload_last_be = core_mac_core_tx_cdc_cdc_fifo_out_payload_last_be;
-assign core_mac_core_tx_cdc_cdc_source_payload_error = core_mac_core_tx_cdc_cdc_fifo_out_payload_error;
-assign core_mac_core_tx_cdc_cdc_asyncfifo_re = core_mac_core_tx_cdc_cdc_source_ready;
-assign core_mac_core_tx_cdc_cdc_graycounter0_ce = (core_mac_core_tx_cdc_cdc_asyncfifo_writable & core_mac_core_tx_cdc_cdc_asyncfifo_we);
-assign core_mac_core_tx_cdc_cdc_graycounter1_ce = (core_mac_core_tx_cdc_cdc_asyncfifo_readable & core_mac_core_tx_cdc_cdc_asyncfifo_re);
-assign core_mac_core_tx_cdc_cdc_asyncfifo_writable = (((core_mac_core_tx_cdc_cdc_graycounter0_q[5] == core_mac_core_tx_cdc_cdc_consume_wdomain[5]) | (core_mac_core_tx_cdc_cdc_graycounter0_q[4] == core_mac_core_tx_cdc_cdc_consume_wdomain[4])) | (core_mac_core_tx_cdc_cdc_graycounter0_q[3:0] != core_mac_core_tx_cdc_cdc_consume_wdomain[3:0]));
-assign core_mac_core_tx_cdc_cdc_asyncfifo_readable = (core_mac_core_tx_cdc_cdc_graycounter1_q != core_mac_core_tx_cdc_cdc_produce_rdomain);
-assign core_mac_core_tx_cdc_cdc_wrport_adr = core_mac_core_tx_cdc_cdc_graycounter0_q_binary[4:0];
-assign core_mac_core_tx_cdc_cdc_wrport_dat_w = core_mac_core_tx_cdc_cdc_asyncfifo_din;
-assign core_mac_core_tx_cdc_cdc_wrport_we = core_mac_core_tx_cdc_cdc_graycounter0_ce;
-assign core_mac_core_tx_cdc_cdc_rdport_adr = core_mac_core_tx_cdc_cdc_graycounter1_q_next_binary[4:0];
-assign core_mac_core_tx_cdc_cdc_asyncfifo_dout = core_mac_core_tx_cdc_cdc_rdport_dat_r;
+assign core_mac_core_txdatapath_cdc_sink_valid = core_mac_core_txdatapath_sink_sink_valid;
+assign core_mac_core_txdatapath_sink_sink_ready = core_mac_core_txdatapath_cdc_sink_ready;
+assign core_mac_core_txdatapath_cdc_sink_first = core_mac_core_txdatapath_sink_sink_first;
+assign core_mac_core_txdatapath_cdc_sink_last = core_mac_core_txdatapath_sink_sink_last;
+assign core_mac_core_txdatapath_cdc_sink_payload_data = core_mac_core_txdatapath_sink_sink_payload_data;
+assign core_mac_core_txdatapath_cdc_sink_payload_last_be = core_mac_core_txdatapath_sink_sink_payload_last_be;
+assign core_mac_core_txdatapath_cdc_sink_payload_error = core_mac_core_txdatapath_sink_sink_payload_error;
+assign core_mac_core_txdatapath_source_source_valid = core_mac_core_txdatapath_cdc_source_valid;
+assign core_mac_core_txdatapath_cdc_source_ready = core_mac_core_txdatapath_source_source_ready;
+assign core_mac_core_txdatapath_source_source_first = core_mac_core_txdatapath_cdc_source_first;
+assign core_mac_core_txdatapath_source_source_last = core_mac_core_txdatapath_cdc_source_last;
+assign core_mac_core_txdatapath_source_source_payload_data = core_mac_core_txdatapath_cdc_source_payload_data;
+assign core_mac_core_txdatapath_source_source_payload_last_be = core_mac_core_txdatapath_cdc_source_payload_last_be;
+assign core_mac_core_txdatapath_source_source_payload_error = core_mac_core_txdatapath_cdc_source_payload_error;
+assign core_mac_core_txdatapath_cdc_asyncfifo_din = {core_mac_core_txdatapath_cdc_fifo_in_last, core_mac_core_txdatapath_cdc_fifo_in_first, core_mac_core_txdatapath_cdc_fifo_in_payload_error, core_mac_core_txdatapath_cdc_fifo_in_payload_last_be, core_mac_core_txdatapath_cdc_fifo_in_payload_data};
+assign {core_mac_core_txdatapath_cdc_fifo_out_last, core_mac_core_txdatapath_cdc_fifo_out_first, core_mac_core_txdatapath_cdc_fifo_out_payload_error, core_mac_core_txdatapath_cdc_fifo_out_payload_last_be, core_mac_core_txdatapath_cdc_fifo_out_payload_data} = core_mac_core_txdatapath_cdc_asyncfifo_dout;
+assign core_mac_core_txdatapath_cdc_sink_ready = core_mac_core_txdatapath_cdc_asyncfifo_writable;
+assign core_mac_core_txdatapath_cdc_asyncfifo_we = core_mac_core_txdatapath_cdc_sink_valid;
+assign core_mac_core_txdatapath_cdc_fifo_in_first = core_mac_core_txdatapath_cdc_sink_first;
+assign core_mac_core_txdatapath_cdc_fifo_in_last = core_mac_core_txdatapath_cdc_sink_last;
+assign core_mac_core_txdatapath_cdc_fifo_in_payload_data = core_mac_core_txdatapath_cdc_sink_payload_data;
+assign core_mac_core_txdatapath_cdc_fifo_in_payload_last_be = core_mac_core_txdatapath_cdc_sink_payload_last_be;
+assign core_mac_core_txdatapath_cdc_fifo_in_payload_error = core_mac_core_txdatapath_cdc_sink_payload_error;
+assign core_mac_core_txdatapath_cdc_source_valid = core_mac_core_txdatapath_cdc_asyncfifo_readable;
+assign core_mac_core_txdatapath_cdc_source_first = core_mac_core_txdatapath_cdc_fifo_out_first;
+assign core_mac_core_txdatapath_cdc_source_last = core_mac_core_txdatapath_cdc_fifo_out_last;
+assign core_mac_core_txdatapath_cdc_source_payload_data = core_mac_core_txdatapath_cdc_fifo_out_payload_data;
+assign core_mac_core_txdatapath_cdc_source_payload_last_be = core_mac_core_txdatapath_cdc_fifo_out_payload_last_be;
+assign core_mac_core_txdatapath_cdc_source_payload_error = core_mac_core_txdatapath_cdc_fifo_out_payload_error;
+assign core_mac_core_txdatapath_cdc_asyncfifo_re = core_mac_core_txdatapath_cdc_source_ready;
+assign core_mac_core_txdatapath_cdc_graycounter0_ce = (core_mac_core_txdatapath_cdc_asyncfifo_writable & core_mac_core_txdatapath_cdc_asyncfifo_we);
+assign core_mac_core_txdatapath_cdc_graycounter1_ce = (core_mac_core_txdatapath_cdc_asyncfifo_readable & core_mac_core_txdatapath_cdc_asyncfifo_re);
+assign core_mac_core_txdatapath_cdc_asyncfifo_writable = (((core_mac_core_txdatapath_cdc_graycounter0_q[5] == core_mac_core_txdatapath_cdc_consume_wdomain[5]) | (core_mac_core_txdatapath_cdc_graycounter0_q[4] == core_mac_core_txdatapath_cdc_consume_wdomain[4])) | (core_mac_core_txdatapath_cdc_graycounter0_q[3:0] != core_mac_core_txdatapath_cdc_consume_wdomain[3:0]));
+assign core_mac_core_txdatapath_cdc_asyncfifo_readable = (core_mac_core_txdatapath_cdc_graycounter1_q != core_mac_core_txdatapath_cdc_produce_rdomain);
+assign core_mac_core_txdatapath_cdc_wrport_adr = core_mac_core_txdatapath_cdc_graycounter0_q_binary[4:0];
+assign core_mac_core_txdatapath_cdc_wrport_dat_w = core_mac_core_txdatapath_cdc_asyncfifo_din;
+assign core_mac_core_txdatapath_cdc_wrport_we = core_mac_core_txdatapath_cdc_graycounter0_ce;
+assign core_mac_core_txdatapath_cdc_rdport_adr = core_mac_core_txdatapath_cdc_graycounter1_q_next_binary[4:0];
+assign core_mac_core_txdatapath_cdc_asyncfifo_dout = core_mac_core_txdatapath_cdc_rdport_dat_r;
 always @(*) begin
-    core_mac_core_tx_cdc_cdc_graycounter0_q_next_binary <= 6'd0;
-    if (core_mac_core_tx_cdc_cdc_graycounter0_ce) begin
-        core_mac_core_tx_cdc_cdc_graycounter0_q_next_binary <= (core_mac_core_tx_cdc_cdc_graycounter0_q_binary + 1'd1);
+    core_mac_core_txdatapath_cdc_graycounter0_q_next_binary <= 6'd0;
+    if (core_mac_core_txdatapath_cdc_graycounter0_ce) begin
+        core_mac_core_txdatapath_cdc_graycounter0_q_next_binary <= (core_mac_core_txdatapath_cdc_graycounter0_q_binary + 1'd1);
     end else begin
-        core_mac_core_tx_cdc_cdc_graycounter0_q_next_binary <= core_mac_core_tx_cdc_cdc_graycounter0_q_binary;
+        core_mac_core_txdatapath_cdc_graycounter0_q_next_binary <= core_mac_core_txdatapath_cdc_graycounter0_q_binary;
     end
 end
-assign core_mac_core_tx_cdc_cdc_graycounter0_q_next = (core_mac_core_tx_cdc_cdc_graycounter0_q_next_binary ^ core_mac_core_tx_cdc_cdc_graycounter0_q_next_binary[5:1]);
+assign core_mac_core_txdatapath_cdc_graycounter0_q_next = (core_mac_core_txdatapath_cdc_graycounter0_q_next_binary ^ core_mac_core_txdatapath_cdc_graycounter0_q_next_binary[5:1]);
 always @(*) begin
-    core_mac_core_tx_cdc_cdc_graycounter1_q_next_binary <= 6'd0;
-    if (core_mac_core_tx_cdc_cdc_graycounter1_ce) begin
-        core_mac_core_tx_cdc_cdc_graycounter1_q_next_binary <= (core_mac_core_tx_cdc_cdc_graycounter1_q_binary + 1'd1);
+    core_mac_core_txdatapath_cdc_graycounter1_q_next_binary <= 6'd0;
+    if (core_mac_core_txdatapath_cdc_graycounter1_ce) begin
+        core_mac_core_txdatapath_cdc_graycounter1_q_next_binary <= (core_mac_core_txdatapath_cdc_graycounter1_q_binary + 1'd1);
     end else begin
-        core_mac_core_tx_cdc_cdc_graycounter1_q_next_binary <= core_mac_core_tx_cdc_cdc_graycounter1_q_binary;
+        core_mac_core_txdatapath_cdc_graycounter1_q_next_binary <= core_mac_core_txdatapath_cdc_graycounter1_q_binary;
     end
 end
-assign core_mac_core_tx_cdc_cdc_graycounter1_q_next = (core_mac_core_tx_cdc_cdc_graycounter1_q_next_binary ^ core_mac_core_tx_cdc_cdc_graycounter1_q_next_binary[5:1]);
+assign core_mac_core_txdatapath_cdc_graycounter1_q_next = (core_mac_core_txdatapath_cdc_graycounter1_q_next_binary ^ core_mac_core_txdatapath_cdc_graycounter1_q_next_binary[5:1]);
 assign core_mac_core_tx_padding_counter_done = (core_mac_core_tx_padding_counter >= 6'd59);
 always @(*) begin
     core_mac_core_tx_padding_counter_liteethmac_clockdomainsrenamer0_next_value <= 16'd0;
     core_mac_core_tx_padding_counter_liteethmac_clockdomainsrenamer0_next_value_ce <= 1'd0;
     core_mac_core_tx_padding_sink_ready <= 1'd0;
-    udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_next_state <= 1'd0;
-    core_mac_core_tx_padding_source_valid <= 1'd0;
     core_mac_core_tx_padding_source_first <= 1'd0;
     core_mac_core_tx_padding_source_last <= 1'd0;
     core_mac_core_tx_padding_source_payload_data <= 8'd0;
-    core_mac_core_tx_padding_source_payload_last_be <= 1'd0;
     core_mac_core_tx_padding_source_payload_error <= 1'd0;
-    udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_next_state <= udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_state;
-    case (udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_state)
+    core_mac_core_tx_padding_source_payload_last_be <= 1'd0;
+    core_mac_core_tx_padding_source_valid <= 1'd0;
+    liteethmac_txdatapath_liteethmacpaddinginserter_next_state <= 1'd0;
+    liteethmac_txdatapath_liteethmacpaddinginserter_next_state <= liteethmac_txdatapath_liteethmacpaddinginserter_state;
+    case (liteethmac_txdatapath_liteethmacpaddinginserter_state)
         1'd1: begin
             core_mac_core_tx_padding_source_valid <= 1'd1;
             if (core_mac_core_tx_padding_counter_done) begin
@@ -2330,7 +2493,7 @@ always @(*) begin
                 if (core_mac_core_tx_padding_counter_done) begin
                     core_mac_core_tx_padding_counter_liteethmac_clockdomainsrenamer0_next_value <= 1'd0;
                     core_mac_core_tx_padding_counter_liteethmac_clockdomainsrenamer0_next_value_ce <= 1'd1;
-                    udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_next_state <= 1'd0;
+                    liteethmac_txdatapath_liteethmacpaddinginserter_next_state <= 1'd0;
                 end
             end
         end
@@ -2349,7 +2512,7 @@ always @(*) begin
                     if ((~core_mac_core_tx_padding_counter_done)) begin
                         core_mac_core_tx_padding_source_last <= 1'd0;
                         core_mac_core_tx_padding_source_payload_last_be <= 1'd0;
-                        udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_next_state <= 1'd1;
+                        liteethmac_txdatapath_liteethmacpaddinginserter_next_state <= 1'd1;
                     end else begin
                         if (((core_mac_core_tx_padding_counter == 6'd59) & (core_mac_core_tx_padding_sink_payload_last_be < 1'd1))) begin
                             core_mac_core_tx_padding_source_payload_last_be <= 1'd1;
@@ -2363,6 +2526,8 @@ always @(*) begin
         end
     endcase
 end
+assign core_mac_core_tx_crc_data0 = core_mac_core_tx_crc_sink_payload_data;
+assign core_mac_core_tx_crc_be = core_mac_core_tx_crc_sink_payload_last_be;
 assign core_mac_core_tx_crc_cnt_done = (core_mac_core_tx_crc_cnt == 1'd0);
 assign core_mac_core_tx_crc_sink_valid = core_mac_core_tx_crc_source_source_valid;
 assign core_mac_core_tx_crc_source_source_ready = core_mac_core_tx_crc_sink_ready;
@@ -2371,84 +2536,72 @@ assign core_mac_core_tx_crc_sink_last = core_mac_core_tx_crc_source_source_last;
 assign core_mac_core_tx_crc_sink_payload_data = core_mac_core_tx_crc_source_source_payload_data;
 assign core_mac_core_tx_crc_sink_payload_last_be = core_mac_core_tx_crc_source_source_payload_last_be;
 assign core_mac_core_tx_crc_sink_payload_error = core_mac_core_tx_crc_source_source_payload_error;
+assign core_mac_core_tx_crc_data1 = core_mac_core_tx_crc_data0;
+assign core_mac_core_tx_crc_crc_prev = core_mac_core_tx_crc_reg;
 always @(*) begin
-    core_mac_core_tx_crc_last_be1 <= 1'd0;
-    if ((core_mac_core_tx_crc_last_be0 != 1'd0)) begin
-        core_mac_core_tx_crc_last_be1 <= core_mac_core_tx_crc_last_be0;
-    end else begin
-        core_mac_core_tx_crc_last_be1 <= 1'd1;
-    end
-end
-assign core_mac_core_tx_crc_data1 = core_mac_core_tx_crc_data0[7:0];
-assign core_mac_core_tx_crc_last = core_mac_core_tx_crc_reg;
-always @(*) begin
-    core_mac_core_tx_crc_value <= 32'd0;
     core_mac_core_tx_crc_error <= 1'd0;
-    if (core_mac_core_tx_crc_last_be1) begin
-        core_mac_core_tx_crc_value <= {t_slice_proxy31[0], t_slice_proxy30[1], t_slice_proxy29[2], t_slice_proxy28[3], t_slice_proxy27[4], t_slice_proxy26[5], t_slice_proxy25[6], t_slice_proxy24[7], t_slice_proxy23[8], t_slice_proxy22[9], t_slice_proxy21[10], t_slice_proxy20[11], t_slice_proxy19[12], t_slice_proxy18[13], t_slice_proxy17[14], t_slice_proxy16[15], t_slice_proxy15[16], t_slice_proxy14[17], t_slice_proxy13[18], t_slice_proxy12[19], t_slice_proxy11[20], t_slice_proxy10[21], t_slice_proxy9[22], t_slice_proxy8[23], t_slice_proxy7[24], t_slice_proxy6[25], t_slice_proxy5[26], t_slice_proxy4[27], t_slice_proxy3[28], t_slice_proxy2[29], t_slice_proxy1[30], t_slice_proxy0[31]};
-        core_mac_core_tx_crc_error <= (core_mac_core_tx_crc_next != 32'd3338984827);
+    core_mac_core_tx_crc_value <= 32'd0;
+    if (core_mac_core_tx_crc_be) begin
+        core_mac_core_tx_crc_value <= ({core_mac_core_tx_crc_crc_next[0], core_mac_core_tx_crc_crc_next[1], core_mac_core_tx_crc_crc_next[2], core_mac_core_tx_crc_crc_next[3], core_mac_core_tx_crc_crc_next[4], core_mac_core_tx_crc_crc_next[5], core_mac_core_tx_crc_crc_next[6], core_mac_core_tx_crc_crc_next[7], core_mac_core_tx_crc_crc_next[8], core_mac_core_tx_crc_crc_next[9], core_mac_core_tx_crc_crc_next[10], core_mac_core_tx_crc_crc_next[11], core_mac_core_tx_crc_crc_next[12], core_mac_core_tx_crc_crc_next[13], core_mac_core_tx_crc_crc_next[14], core_mac_core_tx_crc_crc_next[15], core_mac_core_tx_crc_crc_next[16], core_mac_core_tx_crc_crc_next[17], core_mac_core_tx_crc_crc_next[18], core_mac_core_tx_crc_crc_next[19], core_mac_core_tx_crc_crc_next[20], core_mac_core_tx_crc_crc_next[21], core_mac_core_tx_crc_crc_next[22], core_mac_core_tx_crc_crc_next[23], core_mac_core_tx_crc_crc_next[24], core_mac_core_tx_crc_crc_next[25], core_mac_core_tx_crc_crc_next[26], core_mac_core_tx_crc_crc_next[27], core_mac_core_tx_crc_crc_next[28], core_mac_core_tx_crc_crc_next[29], core_mac_core_tx_crc_crc_next[30], core_mac_core_tx_crc_crc_next[31]} ^ 32'd4294967295);
+        core_mac_core_tx_crc_error <= (core_mac_core_tx_crc_crc_next != 32'd3338984827);
     end
 end
 always @(*) begin
-    core_mac_core_tx_crc_next <= 32'd0;
-    core_mac_core_tx_crc_next[0] <= (((core_mac_core_tx_crc_last[24] ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[1] <= (((((((core_mac_core_tx_crc_last[25] ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[2] <= (((((((((core_mac_core_tx_crc_last[26] ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[3] <= (((((((core_mac_core_tx_crc_last[27] ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]);
-    core_mac_core_tx_crc_next[4] <= (((((((((core_mac_core_tx_crc_last[28] ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[5] <= (((((((((((((core_mac_core_tx_crc_last[29] ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[6] <= (((((((((((core_mac_core_tx_crc_last[30] ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]);
-    core_mac_core_tx_crc_next[7] <= (((((((((core_mac_core_tx_crc_last[31] ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[8] <= ((((((((core_mac_core_tx_crc_last[0] ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[9] <= ((((((((core_mac_core_tx_crc_last[1] ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_data1[6]);
-    core_mac_core_tx_crc_next[10] <= ((((((((core_mac_core_tx_crc_last[2] ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[11] <= ((((((((core_mac_core_tx_crc_last[3] ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[12] <= ((((((((((((core_mac_core_tx_crc_last[4] ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[13] <= ((((((((((((core_mac_core_tx_crc_last[5] ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]);
-    core_mac_core_tx_crc_next[14] <= ((((((((((core_mac_core_tx_crc_last[6] ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]);
-    core_mac_core_tx_crc_next[15] <= ((((((((core_mac_core_tx_crc_last[7] ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]);
-    core_mac_core_tx_crc_next[16] <= ((((((core_mac_core_tx_crc_last[8] ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[17] <= ((((((core_mac_core_tx_crc_last[9] ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_data1[6]);
-    core_mac_core_tx_crc_next[18] <= ((((((core_mac_core_tx_crc_last[10] ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]);
-    core_mac_core_tx_crc_next[19] <= ((((core_mac_core_tx_crc_last[11] ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]);
-    core_mac_core_tx_crc_next[20] <= ((core_mac_core_tx_crc_last[12] ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]);
-    core_mac_core_tx_crc_next[21] <= ((core_mac_core_tx_crc_last[13] ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]);
-    core_mac_core_tx_crc_next[22] <= ((core_mac_core_tx_crc_last[14] ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[23] <= ((((((core_mac_core_tx_crc_last[15] ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[24] <= ((((((core_mac_core_tx_crc_last[16] ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]);
-    core_mac_core_tx_crc_next[25] <= ((((core_mac_core_tx_crc_last[17] ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]);
-    core_mac_core_tx_crc_next[26] <= ((((((((core_mac_core_tx_crc_last[18] ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_last[24]) ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
-    core_mac_core_tx_crc_next[27] <= ((((((((core_mac_core_tx_crc_last[19] ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_last[25]) ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]);
-    core_mac_core_tx_crc_next[28] <= ((((((core_mac_core_tx_crc_last[20] ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_last[26]) ^ core_mac_core_tx_crc_data1[5]);
-    core_mac_core_tx_crc_next[29] <= ((((((core_mac_core_tx_crc_last[21] ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_last[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_last[27]) ^ core_mac_core_tx_crc_data1[4]);
-    core_mac_core_tx_crc_next[30] <= ((((core_mac_core_tx_crc_last[22] ^ core_mac_core_tx_crc_last[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_last[28]) ^ core_mac_core_tx_crc_data1[3]);
-    core_mac_core_tx_crc_next[31] <= ((core_mac_core_tx_crc_last[23] ^ core_mac_core_tx_crc_last[29]) ^ core_mac_core_tx_crc_data1[2]);
+    core_mac_core_tx_crc_crc_next <= 32'd0;
+    core_mac_core_tx_crc_crc_next[0] <= (((core_mac_core_tx_crc_crc_prev[24] ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[1] <= (((((((core_mac_core_tx_crc_crc_prev[25] ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[2] <= (((((((((core_mac_core_tx_crc_crc_prev[26] ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[3] <= (((((((core_mac_core_tx_crc_crc_prev[27] ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]);
+    core_mac_core_tx_crc_crc_next[4] <= (((((((((core_mac_core_tx_crc_crc_prev[28] ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[5] <= (((((((((((((core_mac_core_tx_crc_crc_prev[29] ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[6] <= (((((((((((core_mac_core_tx_crc_crc_prev[30] ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]);
+    core_mac_core_tx_crc_crc_next[7] <= (((((((((core_mac_core_tx_crc_crc_prev[31] ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[8] <= ((((((((core_mac_core_tx_crc_crc_prev[0] ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[9] <= ((((((((core_mac_core_tx_crc_crc_prev[1] ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_data1[6]);
+    core_mac_core_tx_crc_crc_next[10] <= ((((((((core_mac_core_tx_crc_crc_prev[2] ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[11] <= ((((((((core_mac_core_tx_crc_crc_prev[3] ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[12] <= ((((((((((((core_mac_core_tx_crc_crc_prev[4] ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[13] <= ((((((((((((core_mac_core_tx_crc_crc_prev[5] ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]);
+    core_mac_core_tx_crc_crc_next[14] <= ((((((((((core_mac_core_tx_crc_crc_prev[6] ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]);
+    core_mac_core_tx_crc_crc_next[15] <= ((((((((core_mac_core_tx_crc_crc_prev[7] ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]);
+    core_mac_core_tx_crc_crc_next[16] <= ((((((core_mac_core_tx_crc_crc_prev[8] ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[17] <= ((((((core_mac_core_tx_crc_crc_prev[9] ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_data1[6]);
+    core_mac_core_tx_crc_crc_next[18] <= ((((((core_mac_core_tx_crc_crc_prev[10] ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]);
+    core_mac_core_tx_crc_crc_next[19] <= ((((core_mac_core_tx_crc_crc_prev[11] ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]);
+    core_mac_core_tx_crc_crc_next[20] <= ((core_mac_core_tx_crc_crc_prev[12] ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]);
+    core_mac_core_tx_crc_crc_next[21] <= ((core_mac_core_tx_crc_crc_prev[13] ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]);
+    core_mac_core_tx_crc_crc_next[22] <= ((core_mac_core_tx_crc_crc_prev[14] ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[23] <= ((((((core_mac_core_tx_crc_crc_prev[15] ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_data1[6]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[24] <= ((((((core_mac_core_tx_crc_crc_prev[16] ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]);
+    core_mac_core_tx_crc_crc_next[25] <= ((((core_mac_core_tx_crc_crc_prev[17] ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]);
+    core_mac_core_tx_crc_crc_next[26] <= ((((((((core_mac_core_tx_crc_crc_prev[18] ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]) ^ core_mac_core_tx_crc_crc_prev[24]) ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_data1[7]);
+    core_mac_core_tx_crc_crc_next[27] <= ((((((((core_mac_core_tx_crc_crc_prev[19] ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]) ^ core_mac_core_tx_crc_crc_prev[25]) ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_data1[6]);
+    core_mac_core_tx_crc_crc_next[28] <= ((((((core_mac_core_tx_crc_crc_prev[20] ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]) ^ core_mac_core_tx_crc_crc_prev[26]) ^ core_mac_core_tx_crc_data1[5]);
+    core_mac_core_tx_crc_crc_next[29] <= ((((((core_mac_core_tx_crc_crc_prev[21] ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_crc_prev[30]) ^ core_mac_core_tx_crc_data1[1]) ^ core_mac_core_tx_crc_crc_prev[27]) ^ core_mac_core_tx_crc_data1[4]);
+    core_mac_core_tx_crc_crc_next[30] <= ((((core_mac_core_tx_crc_crc_prev[22] ^ core_mac_core_tx_crc_crc_prev[31]) ^ core_mac_core_tx_crc_data1[0]) ^ core_mac_core_tx_crc_crc_prev[28]) ^ core_mac_core_tx_crc_data1[3]);
+    core_mac_core_tx_crc_crc_next[31] <= ((core_mac_core_tx_crc_crc_prev[23] ^ core_mac_core_tx_crc_crc_prev[29]) ^ core_mac_core_tx_crc_data1[2]);
 end
 always @(*) begin
-    udpcore_liteethmac_txdatapath_bufferizeendpoints_next_state <= 2'd0;
-    core_mac_core_tx_crc_sink_ready <= 1'd0;
+    core_mac_core_tx_crc_ce <= 1'd0;
+    core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value0 <= 32'd0;
+    core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value_ce0 <= 1'd0;
     core_mac_core_tx_crc_is_ongoing0 <= 1'd0;
     core_mac_core_tx_crc_is_ongoing1 <= 1'd0;
-    core_mac_core_tx_crc_source_valid <= 1'd0;
-    core_mac_core_tx_crc_ce <= 1'd0;
+    core_mac_core_tx_crc_last_be_liteethmac_clockdomainsrenamer1_next_value1 <= 1'd0;
+    core_mac_core_tx_crc_last_be_liteethmac_clockdomainsrenamer1_next_value_ce1 <= 1'd0;
     core_mac_core_tx_crc_reset <= 1'd0;
+    core_mac_core_tx_crc_sink_ready <= 1'd0;
     core_mac_core_tx_crc_source_first <= 1'd0;
-    core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value0 <= 32'd0;
     core_mac_core_tx_crc_source_last <= 1'd0;
-    core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value_ce0 <= 1'd0;
     core_mac_core_tx_crc_source_payload_data <= 8'd0;
-    core_mac_core_tx_crc_last_be2_liteethmac_clockdomainsrenamer1_next_value1 <= 1'd0;
-    core_mac_core_tx_crc_source_payload_last_be <= 1'd0;
-    core_mac_core_tx_crc_last_be2_liteethmac_clockdomainsrenamer1_next_value_ce1 <= 1'd0;
     core_mac_core_tx_crc_source_payload_error <= 1'd0;
-    core_mac_core_tx_crc_data0 <= 8'd0;
-    core_mac_core_tx_crc_last_be0 <= 1'd0;
-    udpcore_liteethmac_txdatapath_bufferizeendpoints_next_state <= udpcore_liteethmac_txdatapath_bufferizeendpoints_state;
-    case (udpcore_liteethmac_txdatapath_bufferizeendpoints_state)
+    core_mac_core_tx_crc_source_payload_last_be <= 1'd0;
+    core_mac_core_tx_crc_source_valid <= 1'd0;
+    liteethmac_txdatapath_bufferizeendpoints_next_state <= 2'd0;
+    liteethmac_txdatapath_bufferizeendpoints_next_state <= liteethmac_txdatapath_bufferizeendpoints_state;
+    case (liteethmac_txdatapath_bufferizeendpoints_state)
         1'd1: begin
             core_mac_core_tx_crc_ce <= (core_mac_core_tx_crc_sink_valid & core_mac_core_tx_crc_source_ready);
-            core_mac_core_tx_crc_data0 <= core_mac_core_tx_crc_sink_payload_data;
-            core_mac_core_tx_crc_last_be0 <= core_mac_core_tx_crc_sink_payload_last_be;
             core_mac_core_tx_crc_source_valid <= core_mac_core_tx_crc_sink_valid;
             core_mac_core_tx_crc_sink_ready <= core_mac_core_tx_crc_source_ready;
             core_mac_core_tx_crc_source_first <= core_mac_core_tx_crc_sink_first;
@@ -2460,29 +2613,27 @@ always @(*) begin
             core_mac_core_tx_crc_source_payload_last_be <= 1'd0;
             if (core_mac_core_tx_crc_sink_last) begin
                 if (core_mac_core_tx_crc_sink_payload_last_be) begin
-                    core_mac_core_tx_crc_source_payload_data <= cases_slice_proxy[7:0];
+                    core_mac_core_tx_crc_source_payload_data <= core_mac_core_tx_crc_sink_payload_data;
                 end
                 if ((1'd0 & (core_mac_core_tx_crc_sink_payload_last_be <= 4'd15))) begin
                     core_mac_core_tx_crc_source_last <= 1'd1;
                     core_mac_core_tx_crc_source_payload_last_be <= (core_mac_core_tx_crc_sink_payload_last_be <<< -3'd3);
                 end
-            end else begin
-                core_mac_core_tx_crc_ce <= (core_mac_core_tx_crc_sink_valid & core_mac_core_tx_crc_source_ready);
             end
             if (((core_mac_core_tx_crc_sink_valid & core_mac_core_tx_crc_sink_last) & core_mac_core_tx_crc_source_ready)) begin
                 if ((1'd0 & (core_mac_core_tx_crc_sink_payload_last_be <= 4'd15))) begin
-                    udpcore_liteethmac_txdatapath_bufferizeendpoints_next_state <= 1'd0;
+                    liteethmac_txdatapath_bufferizeendpoints_next_state <= 1'd0;
                 end else begin
                     core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value0 <= core_mac_core_tx_crc_value;
                     core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value_ce0 <= 1'd1;
                     if (1'd0) begin
-                        core_mac_core_tx_crc_last_be2_liteethmac_clockdomainsrenamer1_next_value1 <= (core_mac_core_tx_crc_sink_payload_last_be >>> 3'd4);
-                        core_mac_core_tx_crc_last_be2_liteethmac_clockdomainsrenamer1_next_value_ce1 <= 1'd1;
+                        core_mac_core_tx_crc_last_be_liteethmac_clockdomainsrenamer1_next_value1 <= (core_mac_core_tx_crc_sink_payload_last_be >>> 3'd4);
+                        core_mac_core_tx_crc_last_be_liteethmac_clockdomainsrenamer1_next_value_ce1 <= 1'd1;
                     end else begin
-                        core_mac_core_tx_crc_last_be2_liteethmac_clockdomainsrenamer1_next_value1 <= core_mac_core_tx_crc_sink_payload_last_be;
-                        core_mac_core_tx_crc_last_be2_liteethmac_clockdomainsrenamer1_next_value_ce1 <= 1'd1;
+                        core_mac_core_tx_crc_last_be_liteethmac_clockdomainsrenamer1_next_value1 <= core_mac_core_tx_crc_sink_payload_last_be;
+                        core_mac_core_tx_crc_last_be_liteethmac_clockdomainsrenamer1_next_value_ce1 <= 1'd1;
                     end
-                    udpcore_liteethmac_txdatapath_bufferizeendpoints_next_state <= 2'd2;
+                    liteethmac_txdatapath_bufferizeendpoints_next_state <= 2'd2;
                 end
             end
         end
@@ -2505,7 +2656,7 @@ always @(*) begin
             if (core_mac_core_tx_crc_cnt_done) begin
                 core_mac_core_tx_crc_source_last <= 1'd1;
                 if (core_mac_core_tx_crc_source_ready) begin
-                    udpcore_liteethmac_txdatapath_bufferizeendpoints_next_state <= 1'd0;
+                    liteethmac_txdatapath_bufferizeendpoints_next_state <= 1'd0;
                 end
             end
             core_mac_core_tx_crc_is_ongoing1 <= 1'd1;
@@ -2515,7 +2666,7 @@ always @(*) begin
             core_mac_core_tx_crc_sink_ready <= 1'd1;
             if (core_mac_core_tx_crc_sink_valid) begin
                 core_mac_core_tx_crc_sink_ready <= 1'd0;
-                udpcore_liteethmac_txdatapath_bufferizeendpoints_next_state <= 1'd1;
+                liteethmac_txdatapath_bufferizeendpoints_next_state <= 1'd1;
             end
             core_mac_core_tx_crc_is_ongoing0 <= 1'd1;
         end
@@ -2538,18 +2689,18 @@ assign core_mac_core_tx_crc_source_source_payload_last_be = core_mac_core_tx_crc
 assign core_mac_core_tx_crc_source_source_payload_error = core_mac_core_tx_crc_pipe_valid_source_payload_error;
 assign core_mac_core_tx_preamble_source_payload_last_be = core_mac_core_tx_preamble_sink_payload_last_be;
 always @(*) begin
-    udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_next_state <= 2'd0;
-    core_mac_core_tx_preamble_sink_ready <= 1'd0;
     core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value <= 3'd0;
     core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value_ce <= 1'd0;
-    core_mac_core_tx_preamble_source_valid <= 1'd0;
+    core_mac_core_tx_preamble_sink_ready <= 1'd0;
     core_mac_core_tx_preamble_source_first <= 1'd0;
     core_mac_core_tx_preamble_source_last <= 1'd0;
     core_mac_core_tx_preamble_source_payload_data <= 8'd0;
     core_mac_core_tx_preamble_source_payload_error <= 1'd0;
+    core_mac_core_tx_preamble_source_valid <= 1'd0;
+    liteethmac_txdatapath_liteethmacpreambleinserter_next_state <= 2'd0;
     core_mac_core_tx_preamble_source_payload_data <= core_mac_core_tx_preamble_sink_payload_data;
-    udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_next_state <= udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_state;
-    case (udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_state)
+    liteethmac_txdatapath_liteethmacpreambleinserter_next_state <= liteethmac_txdatapath_liteethmacpreambleinserter_state;
+    case (liteethmac_txdatapath_liteethmacpreambleinserter_state)
         1'd1: begin
             core_mac_core_tx_preamble_source_valid <= 1'd1;
             case (core_mac_core_tx_preamble_count)
@@ -2580,7 +2731,7 @@ always @(*) begin
             endcase
             if (core_mac_core_tx_preamble_source_ready) begin
                 if ((core_mac_core_tx_preamble_count == 3'd7)) begin
-                    udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_next_state <= 2'd2;
+                    liteethmac_txdatapath_liteethmacpreambleinserter_next_state <= 2'd2;
                 end else begin
                     core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value <= (core_mac_core_tx_preamble_count + 1'd1);
                     core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value_ce <= 1'd1;
@@ -2594,7 +2745,7 @@ always @(*) begin
             core_mac_core_tx_preamble_source_last <= core_mac_core_tx_preamble_sink_last;
             core_mac_core_tx_preamble_source_payload_error <= core_mac_core_tx_preamble_sink_payload_error;
             if (((core_mac_core_tx_preamble_sink_valid & core_mac_core_tx_preamble_sink_last) & core_mac_core_tx_preamble_source_ready)) begin
-                udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_next_state <= 1'd0;
+                liteethmac_txdatapath_liteethmacpreambleinserter_next_state <= 1'd0;
             end
         end
         default: begin
@@ -2603,29 +2754,29 @@ always @(*) begin
             core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value_ce <= 1'd1;
             if (core_mac_core_tx_preamble_sink_valid) begin
                 core_mac_core_tx_preamble_sink_ready <= 1'd0;
-                udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_next_state <= 1'd1;
+                liteethmac_txdatapath_liteethmacpreambleinserter_next_state <= 1'd1;
             end
         end
     endcase
 end
 always @(*) begin
-    udpcore_liteethmac_txdatapath_liteethmacgap_next_state <= 1'd0;
     core_mac_core_tx_gap_counter_liteethmac_clockdomainsrenamer3_next_value <= 4'd0;
     core_mac_core_tx_gap_counter_liteethmac_clockdomainsrenamer3_next_value_ce <= 1'd0;
-    core_mac_core_tx_gap_source_valid <= 1'd0;
+    core_mac_core_tx_gap_sink_ready <= 1'd0;
     core_mac_core_tx_gap_source_first <= 1'd0;
     core_mac_core_tx_gap_source_last <= 1'd0;
     core_mac_core_tx_gap_source_payload_data <= 8'd0;
-    core_mac_core_tx_gap_source_payload_last_be <= 1'd0;
     core_mac_core_tx_gap_source_payload_error <= 1'd0;
-    core_mac_core_tx_gap_sink_ready <= 1'd0;
-    udpcore_liteethmac_txdatapath_liteethmacgap_next_state <= udpcore_liteethmac_txdatapath_liteethmacgap_state;
-    case (udpcore_liteethmac_txdatapath_liteethmacgap_state)
+    core_mac_core_tx_gap_source_payload_last_be <= 1'd0;
+    core_mac_core_tx_gap_source_valid <= 1'd0;
+    liteethmac_txdatapath_liteethmacgap_next_state <= 1'd0;
+    liteethmac_txdatapath_liteethmacgap_next_state <= liteethmac_txdatapath_liteethmacgap_state;
+    case (liteethmac_txdatapath_liteethmacgap_state)
         1'd1: begin
             core_mac_core_tx_gap_counter_liteethmac_clockdomainsrenamer3_next_value <= (core_mac_core_tx_gap_counter + 1'd1);
             core_mac_core_tx_gap_counter_liteethmac_clockdomainsrenamer3_next_value_ce <= 1'd1;
             if ((core_mac_core_tx_gap_counter == 4'd11)) begin
-                udpcore_liteethmac_txdatapath_liteethmacgap_next_state <= 1'd0;
+                liteethmac_txdatapath_liteethmacgap_next_state <= 1'd0;
             end
         end
         default: begin
@@ -2639,25 +2790,25 @@ always @(*) begin
             core_mac_core_tx_gap_source_payload_last_be <= core_mac_core_tx_gap_sink_payload_last_be;
             core_mac_core_tx_gap_source_payload_error <= core_mac_core_tx_gap_sink_payload_error;
             if (((core_mac_core_tx_gap_sink_valid & core_mac_core_tx_gap_sink_last) & core_mac_core_tx_gap_sink_ready)) begin
-                udpcore_liteethmac_txdatapath_liteethmacgap_next_state <= 1'd1;
+                liteethmac_txdatapath_liteethmacgap_next_state <= 1'd1;
             end
         end
     endcase
 end
-assign core_mac_core_tx_cdc_sink_sink_valid = core_mac_core_sink_valid;
-assign core_mac_core_sink_ready = core_mac_core_tx_cdc_sink_sink_ready;
-assign core_mac_core_tx_cdc_sink_sink_first = core_mac_core_sink_first;
-assign core_mac_core_tx_cdc_sink_sink_last = core_mac_core_sink_last;
-assign core_mac_core_tx_cdc_sink_sink_payload_data = core_mac_core_sink_payload_data;
-assign core_mac_core_tx_cdc_sink_sink_payload_last_be = core_mac_core_sink_payload_last_be;
-assign core_mac_core_tx_cdc_sink_sink_payload_error = core_mac_core_sink_payload_error;
-assign core_mac_core_tx_padding_sink_valid = core_mac_core_tx_cdc_source_source_valid;
-assign core_mac_core_tx_cdc_source_source_ready = core_mac_core_tx_padding_sink_ready;
-assign core_mac_core_tx_padding_sink_first = core_mac_core_tx_cdc_source_source_first;
-assign core_mac_core_tx_padding_sink_last = core_mac_core_tx_cdc_source_source_last;
-assign core_mac_core_tx_padding_sink_payload_data = core_mac_core_tx_cdc_source_source_payload_data;
-assign core_mac_core_tx_padding_sink_payload_last_be = core_mac_core_tx_cdc_source_source_payload_last_be;
-assign core_mac_core_tx_padding_sink_payload_error = core_mac_core_tx_cdc_source_source_payload_error;
+assign core_mac_core_txdatapath_sink_sink_valid = core_mac_core_sink_valid;
+assign core_mac_core_sink_ready = core_mac_core_txdatapath_sink_sink_ready;
+assign core_mac_core_txdatapath_sink_sink_first = core_mac_core_sink_first;
+assign core_mac_core_txdatapath_sink_sink_last = core_mac_core_sink_last;
+assign core_mac_core_txdatapath_sink_sink_payload_data = core_mac_core_sink_payload_data;
+assign core_mac_core_txdatapath_sink_sink_payload_last_be = core_mac_core_sink_payload_last_be;
+assign core_mac_core_txdatapath_sink_sink_payload_error = core_mac_core_sink_payload_error;
+assign core_mac_core_tx_padding_sink_valid = core_mac_core_txdatapath_source_source_valid;
+assign core_mac_core_txdatapath_source_source_ready = core_mac_core_tx_padding_sink_ready;
+assign core_mac_core_tx_padding_sink_first = core_mac_core_txdatapath_source_source_first;
+assign core_mac_core_tx_padding_sink_last = core_mac_core_txdatapath_source_source_last;
+assign core_mac_core_tx_padding_sink_payload_data = core_mac_core_txdatapath_source_source_payload_data;
+assign core_mac_core_tx_padding_sink_payload_last_be = core_mac_core_txdatapath_source_source_payload_last_be;
+assign core_mac_core_tx_padding_sink_payload_error = core_mac_core_txdatapath_source_source_payload_error;
 assign core_mac_core_tx_crc_sink_sink_valid = core_mac_core_tx_padding_source_valid;
 assign core_mac_core_tx_padding_source_ready = core_mac_core_tx_crc_sink_sink_ready;
 assign core_mac_core_tx_crc_sink_sink_first = core_mac_core_tx_padding_source_first;
@@ -2679,27 +2830,27 @@ assign core_mac_core_tx_gap_sink_last = core_mac_core_tx_preamble_source_last;
 assign core_mac_core_tx_gap_sink_payload_data = core_mac_core_tx_preamble_source_payload_data;
 assign core_mac_core_tx_gap_sink_payload_last_be = core_mac_core_tx_preamble_source_payload_last_be;
 assign core_mac_core_tx_gap_sink_payload_error = core_mac_core_tx_preamble_source_payload_error;
-assign ethphy_sink_valid = core_mac_core_tx_gap_source_valid;
-assign core_mac_core_tx_gap_source_ready = ethphy_sink_ready;
-assign ethphy_sink_first = core_mac_core_tx_gap_source_first;
-assign ethphy_sink_last = core_mac_core_tx_gap_source_last;
-assign ethphy_sink_payload_data = core_mac_core_tx_gap_source_payload_data;
-assign ethphy_sink_payload_last_be = core_mac_core_tx_gap_source_payload_last_be;
-assign ethphy_sink_payload_error = core_mac_core_tx_gap_source_payload_error;
+assign udpcore_ethphy_sink_valid = core_mac_core_tx_gap_source_valid;
+assign core_mac_core_tx_gap_source_ready = udpcore_ethphy_sink_ready;
+assign udpcore_ethphy_sink_first = core_mac_core_tx_gap_source_first;
+assign udpcore_ethphy_sink_last = core_mac_core_tx_gap_source_last;
+assign udpcore_ethphy_sink_payload_data = core_mac_core_tx_gap_source_payload_data;
+assign udpcore_ethphy_sink_payload_last_be = core_mac_core_tx_gap_source_payload_last_be;
+assign udpcore_ethphy_sink_payload_error = core_mac_core_tx_gap_source_payload_error;
 assign core_mac_core_pulsesynchronizer0_i = core_mac_core_rx_preamble_error;
 assign core_mac_core_pulsesynchronizer1_i = core_mac_core_liteethmaccrc32checker_error;
 assign core_mac_core_rx_preamble_source_payload_data = core_mac_core_rx_preamble_sink_payload_data;
 assign core_mac_core_rx_preamble_source_payload_last_be = core_mac_core_rx_preamble_sink_payload_last_be;
 always @(*) begin
-    core_mac_core_rx_preamble_source_first <= 1'd0;
-    core_mac_core_rx_preamble_sink_ready <= 1'd0;
-    core_mac_core_rx_preamble_source_last <= 1'd0;
-    core_mac_core_rx_preamble_source_valid <= 1'd0;
-    core_mac_core_rx_preamble_source_payload_error <= 1'd0;
     core_mac_core_rx_preamble_error <= 1'd0;
-    udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_next_state <= 1'd0;
-    udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_next_state <= udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_state;
-    case (udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_state)
+    core_mac_core_rx_preamble_sink_ready <= 1'd0;
+    core_mac_core_rx_preamble_source_first <= 1'd0;
+    core_mac_core_rx_preamble_source_last <= 1'd0;
+    core_mac_core_rx_preamble_source_payload_error <= 1'd0;
+    core_mac_core_rx_preamble_source_valid <= 1'd0;
+    liteethmac_rxdatapath_liteethmacpreamblechecker_next_state <= 1'd0;
+    liteethmac_rxdatapath_liteethmacpreamblechecker_next_state <= liteethmac_rxdatapath_liteethmacpreamblechecker_state;
+    case (liteethmac_rxdatapath_liteethmacpreamblechecker_state)
         1'd1: begin
             core_mac_core_rx_preamble_source_valid <= core_mac_core_rx_preamble_sink_valid;
             core_mac_core_rx_preamble_sink_ready <= core_mac_core_rx_preamble_source_ready;
@@ -2707,13 +2858,13 @@ always @(*) begin
             core_mac_core_rx_preamble_source_last <= core_mac_core_rx_preamble_sink_last;
             core_mac_core_rx_preamble_source_payload_error <= core_mac_core_rx_preamble_sink_payload_error;
             if (((core_mac_core_rx_preamble_source_valid & core_mac_core_rx_preamble_source_last) & core_mac_core_rx_preamble_source_ready)) begin
-                udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_next_state <= 1'd0;
+                liteethmac_rxdatapath_liteethmacpreamblechecker_next_state <= 1'd0;
             end
         end
         default: begin
             core_mac_core_rx_preamble_sink_ready <= 1'd1;
             if (((core_mac_core_rx_preamble_sink_valid & (~core_mac_core_rx_preamble_sink_last)) & (core_mac_core_rx_preamble_sink_payload_data == core_mac_core_rx_preamble_preamble[63:56]))) begin
-                udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_next_state <= 1'd1;
+                liteethmac_rxdatapath_liteethmacpreamblechecker_next_state <= 1'd1;
             end
             if ((core_mac_core_rx_preamble_sink_valid & core_mac_core_rx_preamble_sink_last)) begin
                 core_mac_core_rx_preamble_error <= 1'd1;
@@ -2741,7 +2892,9 @@ always @(*) begin
     core_mac_core_liteethmaccrc32checker_sink_sink_ready <= core_mac_core_liteethmaccrc32checker_fifo_in;
 end
 assign core_mac_core_liteethmaccrc32checker_crc_data0 = core_mac_core_liteethmaccrc32checker_sink_sink_payload_data;
-assign core_mac_core_liteethmaccrc32checker_crc_last_be0 = core_mac_core_liteethmaccrc32checker_sink_sink_payload_last_be;
+assign core_mac_core_liteethmaccrc32checker_crc_be = core_mac_core_liteethmaccrc32checker_sink_sink_payload_last_be;
+assign core_mac_core_liteethmaccrc32checker_source_source_first = core_mac_core_liteethmaccrc32checker_syncfifo_source_first;
+assign core_mac_core_liteethmaccrc32checker_source_source_payload_data = core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_data;
 assign core_mac_core_liteethmaccrc32checker_sink_sink_valid = core_mac_core_bufferizeendpoints_source_source_valid;
 assign core_mac_core_bufferizeendpoints_source_source_ready = core_mac_core_liteethmaccrc32checker_sink_sink_ready;
 assign core_mac_core_liteethmaccrc32checker_sink_sink_first = core_mac_core_bufferizeendpoints_source_source_first;
@@ -2749,58 +2902,50 @@ assign core_mac_core_liteethmaccrc32checker_sink_sink_last = core_mac_core_buffe
 assign core_mac_core_liteethmaccrc32checker_sink_sink_payload_data = core_mac_core_bufferizeendpoints_source_source_payload_data;
 assign core_mac_core_liteethmaccrc32checker_sink_sink_payload_last_be = core_mac_core_bufferizeendpoints_source_source_payload_last_be;
 assign core_mac_core_liteethmaccrc32checker_sink_sink_payload_error = core_mac_core_bufferizeendpoints_source_source_payload_error;
+assign core_mac_core_liteethmaccrc32checker_crc_crc_prev = core_mac_core_liteethmaccrc32checker_crc_reg;
 always @(*) begin
-    core_mac_core_liteethmaccrc32checker_crc_last_be1 <= 1'd0;
-    if ((core_mac_core_liteethmaccrc32checker_crc_last_be0 != 1'd0)) begin
-        core_mac_core_liteethmaccrc32checker_crc_last_be1 <= core_mac_core_liteethmaccrc32checker_crc_last_be0;
-    end else begin
-        core_mac_core_liteethmaccrc32checker_crc_last_be1 <= 1'd1;
-    end
-end
-assign core_mac_core_liteethmaccrc32checker_crc_data1 = core_mac_core_liteethmaccrc32checker_crc_data0[7:0];
-assign core_mac_core_liteethmaccrc32checker_crc_last = core_mac_core_liteethmaccrc32checker_crc_reg;
-always @(*) begin
-    core_mac_core_liteethmaccrc32checker_crc_value <= 32'd0;
+    core_mac_core_liteethmaccrc32checker_crc_data1 <= 8'd0;
     core_mac_core_liteethmaccrc32checker_crc_error0 <= 1'd0;
-    if (core_mac_core_liteethmaccrc32checker_crc_last_be1) begin
-        core_mac_core_liteethmaccrc32checker_crc_value <= {t_slice_proxy63[0], t_slice_proxy62[1], t_slice_proxy61[2], t_slice_proxy60[3], t_slice_proxy59[4], t_slice_proxy58[5], t_slice_proxy57[6], t_slice_proxy56[7], t_slice_proxy55[8], t_slice_proxy54[9], t_slice_proxy53[10], t_slice_proxy52[11], t_slice_proxy51[12], t_slice_proxy50[13], t_slice_proxy49[14], t_slice_proxy48[15], t_slice_proxy47[16], t_slice_proxy46[17], t_slice_proxy45[18], t_slice_proxy44[19], t_slice_proxy43[20], t_slice_proxy42[21], t_slice_proxy41[22], t_slice_proxy40[23], t_slice_proxy39[24], t_slice_proxy38[25], t_slice_proxy37[26], t_slice_proxy36[27], t_slice_proxy35[28], t_slice_proxy34[29], t_slice_proxy33[30], t_slice_proxy32[31]};
-        core_mac_core_liteethmaccrc32checker_crc_error0 <= (core_mac_core_liteethmaccrc32checker_crc_next != 32'd3338984827);
+    core_mac_core_liteethmaccrc32checker_crc_data1 <= core_mac_core_liteethmaccrc32checker_crc_data0;
+    if (core_mac_core_liteethmaccrc32checker_crc_be) begin
+        core_mac_core_liteethmaccrc32checker_crc_data1 <= (core_mac_core_liteethmaccrc32checker_crc_data0 & 8'd255);
+        core_mac_core_liteethmaccrc32checker_crc_error0 <= (core_mac_core_liteethmaccrc32checker_crc_crc_next != 32'd3338984827);
     end
 end
 always @(*) begin
-    core_mac_core_liteethmaccrc32checker_crc_next <= 32'd0;
-    core_mac_core_liteethmaccrc32checker_crc_next[0] <= (((core_mac_core_liteethmaccrc32checker_crc_last[24] ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[1] <= (((((((core_mac_core_liteethmaccrc32checker_crc_last[25] ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[2] <= (((((((((core_mac_core_liteethmaccrc32checker_crc_last[26] ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[3] <= (((((((core_mac_core_liteethmaccrc32checker_crc_last[27] ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
-    core_mac_core_liteethmaccrc32checker_crc_next[4] <= (((((((((core_mac_core_liteethmaccrc32checker_crc_last[28] ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[5] <= (((((((((((((core_mac_core_liteethmaccrc32checker_crc_last[29] ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[6] <= (((((((((((core_mac_core_liteethmaccrc32checker_crc_last[30] ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
-    core_mac_core_liteethmaccrc32checker_crc_next[7] <= (((((((((core_mac_core_liteethmaccrc32checker_crc_last[31] ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[8] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_last[0] ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[9] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_last[1] ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
-    core_mac_core_liteethmaccrc32checker_crc_next[10] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_last[2] ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[11] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_last[3] ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[12] <= ((((((((((((core_mac_core_liteethmaccrc32checker_crc_last[4] ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[13] <= ((((((((((((core_mac_core_liteethmaccrc32checker_crc_last[5] ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
-    core_mac_core_liteethmaccrc32checker_crc_next[14] <= ((((((((((core_mac_core_liteethmaccrc32checker_crc_last[6] ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]);
-    core_mac_core_liteethmaccrc32checker_crc_next[15] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_last[7] ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]);
-    core_mac_core_liteethmaccrc32checker_crc_next[16] <= ((((((core_mac_core_liteethmaccrc32checker_crc_last[8] ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[17] <= ((((((core_mac_core_liteethmaccrc32checker_crc_last[9] ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
-    core_mac_core_liteethmaccrc32checker_crc_next[18] <= ((((((core_mac_core_liteethmaccrc32checker_crc_last[10] ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]);
-    core_mac_core_liteethmaccrc32checker_crc_next[19] <= ((((core_mac_core_liteethmaccrc32checker_crc_last[11] ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]);
-    core_mac_core_liteethmaccrc32checker_crc_next[20] <= ((core_mac_core_liteethmaccrc32checker_crc_last[12] ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]);
-    core_mac_core_liteethmaccrc32checker_crc_next[21] <= ((core_mac_core_liteethmaccrc32checker_crc_last[13] ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]);
-    core_mac_core_liteethmaccrc32checker_crc_next[22] <= ((core_mac_core_liteethmaccrc32checker_crc_last[14] ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[23] <= ((((((core_mac_core_liteethmaccrc32checker_crc_last[15] ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[24] <= ((((((core_mac_core_liteethmaccrc32checker_crc_last[16] ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
-    core_mac_core_liteethmaccrc32checker_crc_next[25] <= ((((core_mac_core_liteethmaccrc32checker_crc_last[17] ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]);
-    core_mac_core_liteethmaccrc32checker_crc_next[26] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_last[18] ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_last[24]) ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
-    core_mac_core_liteethmaccrc32checker_crc_next[27] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_last[19] ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_last[25]) ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
-    core_mac_core_liteethmaccrc32checker_crc_next[28] <= ((((((core_mac_core_liteethmaccrc32checker_crc_last[20] ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_last[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]);
-    core_mac_core_liteethmaccrc32checker_crc_next[29] <= ((((((core_mac_core_liteethmaccrc32checker_crc_last[21] ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_last[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_last[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]);
-    core_mac_core_liteethmaccrc32checker_crc_next[30] <= ((((core_mac_core_liteethmaccrc32checker_crc_last[22] ^ core_mac_core_liteethmaccrc32checker_crc_last[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_last[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]);
-    core_mac_core_liteethmaccrc32checker_crc_next[31] <= ((core_mac_core_liteethmaccrc32checker_crc_last[23] ^ core_mac_core_liteethmaccrc32checker_crc_last[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next <= 32'd0;
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[0] <= (((core_mac_core_liteethmaccrc32checker_crc_crc_prev[24] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[1] <= (((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[25] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[2] <= (((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[26] ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[3] <= (((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[27] ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[4] <= (((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[28] ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[5] <= (((((((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[29] ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[6] <= (((((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[30] ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[7] <= (((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[31] ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[8] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[0] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[9] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[1] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[10] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[2] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[11] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[3] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[12] <= ((((((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[4] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[13] <= ((((((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[5] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[14] <= ((((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[6] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[15] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[7] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[16] <= ((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[8] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[17] <= ((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[9] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[18] <= ((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[10] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[19] <= ((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[11] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[20] <= ((core_mac_core_liteethmaccrc32checker_crc_crc_prev[12] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[21] <= ((core_mac_core_liteethmaccrc32checker_crc_crc_prev[13] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[22] <= ((core_mac_core_liteethmaccrc32checker_crc_crc_prev[14] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[23] <= ((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[15] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[24] <= ((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[16] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[25] <= ((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[17] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[26] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[18] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[24]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[7]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[27] <= ((((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[19] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[25]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[6]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[28] <= ((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[20] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[26]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[5]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[29] <= ((((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[21] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[30]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[1]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[27]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[4]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[30] <= ((((core_mac_core_liteethmaccrc32checker_crc_crc_prev[22] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[31]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[0]) ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[28]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[3]);
+    core_mac_core_liteethmaccrc32checker_crc_crc_next[31] <= ((core_mac_core_liteethmaccrc32checker_crc_crc_prev[23] ^ core_mac_core_liteethmaccrc32checker_crc_crc_prev[29]) ^ core_mac_core_liteethmaccrc32checker_crc_data1[2]);
 end
 assign core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_din = {core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_last, core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_first, core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_payload_error, core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_payload_last_be, core_mac_core_liteethmaccrc32checker_syncfifo_fifo_in_payload_data};
 assign {core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_last, core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_first, core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_payload_error, core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_payload_last_be, core_mac_core_liteethmaccrc32checker_syncfifo_fifo_out_payload_data} = core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_dout;
@@ -2834,36 +2979,32 @@ assign core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_dout = core_mac_co
 assign core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_writable = (core_mac_core_liteethmaccrc32checker_syncfifo_level != 3'd5);
 assign core_mac_core_liteethmaccrc32checker_syncfifo_syncfifo_readable = (core_mac_core_liteethmaccrc32checker_syncfifo_level != 1'd0);
 always @(*) begin
-    udpcore_liteethmac_rxdatapath_bufferizeendpoints_next_state <= 2'd0;
+    core_mac_core_liteethmaccrc32checker_crc_ce <= 1'd0;
+    core_mac_core_liteethmaccrc32checker_crc_error1_liteethmac_next_value1 <= 1'd0;
+    core_mac_core_liteethmaccrc32checker_crc_error1_liteethmac_next_value_ce1 <= 1'd0;
+    core_mac_core_liteethmaccrc32checker_crc_reset <= 1'd0;
+    core_mac_core_liteethmaccrc32checker_error <= 1'd0;
     core_mac_core_liteethmaccrc32checker_fifo_reset <= 1'd0;
     core_mac_core_liteethmaccrc32checker_last_be_liteethmac_next_value0 <= 1'd0;
-    core_mac_core_liteethmaccrc32checker_source_source_valid <= 1'd0;
     core_mac_core_liteethmaccrc32checker_last_be_liteethmac_next_value_ce0 <= 1'd0;
-    core_mac_core_liteethmaccrc32checker_crc_error1_liteethmac_next_value1 <= 1'd0;
-    core_mac_core_liteethmaccrc32checker_crc_ce <= 1'd0;
-    core_mac_core_liteethmaccrc32checker_crc_error1_liteethmac_next_value_ce1 <= 1'd0;
-    core_mac_core_liteethmaccrc32checker_source_source_first <= 1'd0;
-    core_mac_core_liteethmaccrc32checker_crc_reset <= 1'd0;
     core_mac_core_liteethmaccrc32checker_source_source_last <= 1'd0;
-    core_mac_core_liteethmaccrc32checker_source_source_payload_data <= 8'd0;
-    core_mac_core_liteethmaccrc32checker_source_source_payload_last_be <= 1'd0;
     core_mac_core_liteethmaccrc32checker_source_source_payload_error <= 1'd0;
-    core_mac_core_liteethmaccrc32checker_error <= 1'd0;
+    core_mac_core_liteethmaccrc32checker_source_source_payload_last_be <= 1'd0;
+    core_mac_core_liteethmaccrc32checker_source_source_valid <= 1'd0;
     core_mac_core_liteethmaccrc32checker_syncfifo_source_ready <= 1'd0;
-    udpcore_liteethmac_rxdatapath_bufferizeendpoints_next_state <= udpcore_liteethmac_rxdatapath_bufferizeendpoints_state;
-    case (udpcore_liteethmac_rxdatapath_bufferizeendpoints_state)
+    liteethmac_rxdatapath_bufferizeendpoints_next_state <= 2'd0;
+    core_mac_core_liteethmaccrc32checker_source_source_payload_error <= core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_error;
+    liteethmac_rxdatapath_bufferizeendpoints_next_state <= liteethmac_rxdatapath_bufferizeendpoints_state;
+    case (liteethmac_rxdatapath_bufferizeendpoints_state)
         1'd1: begin
             if ((core_mac_core_liteethmaccrc32checker_sink_sink_valid & core_mac_core_liteethmaccrc32checker_sink_sink_ready)) begin
                 core_mac_core_liteethmaccrc32checker_crc_ce <= 1'd1;
-                udpcore_liteethmac_rxdatapath_bufferizeendpoints_next_state <= 2'd2;
+                liteethmac_rxdatapath_bufferizeendpoints_next_state <= 2'd2;
             end
         end
         2'd2: begin
             core_mac_core_liteethmaccrc32checker_syncfifo_source_ready <= core_mac_core_liteethmaccrc32checker_fifo_out;
             core_mac_core_liteethmaccrc32checker_source_source_valid <= (core_mac_core_liteethmaccrc32checker_sink_sink_valid & core_mac_core_liteethmaccrc32checker_fifo_full);
-            core_mac_core_liteethmaccrc32checker_source_source_payload_data <= core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_data;
-            core_mac_core_liteethmaccrc32checker_source_source_payload_last_be <= core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_last_be;
-            core_mac_core_liteethmaccrc32checker_source_source_payload_error <= core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_error;
             if (1'd1) begin
                 core_mac_core_liteethmaccrc32checker_source_source_last <= core_mac_core_liteethmaccrc32checker_sink_sink_last;
                 core_mac_core_liteethmaccrc32checker_source_source_payload_last_be <= core_mac_core_liteethmaccrc32checker_sink_sink_payload_last_be;
@@ -2883,10 +3024,10 @@ always @(*) begin
             if ((core_mac_core_liteethmaccrc32checker_sink_sink_valid & core_mac_core_liteethmaccrc32checker_sink_sink_ready)) begin
                 core_mac_core_liteethmaccrc32checker_crc_ce <= 1'd1;
                 if ((core_mac_core_liteethmaccrc32checker_sink_sink_last & (core_mac_core_liteethmaccrc32checker_sink_sink_payload_last_be > 4'd15))) begin
-                    udpcore_liteethmac_rxdatapath_bufferizeendpoints_next_state <= 2'd3;
+                    liteethmac_rxdatapath_bufferizeendpoints_next_state <= 2'd3;
                 end else begin
                     if (core_mac_core_liteethmaccrc32checker_sink_sink_last) begin
-                        udpcore_liteethmac_rxdatapath_bufferizeendpoints_next_state <= 1'd0;
+                        liteethmac_rxdatapath_bufferizeendpoints_next_state <= 1'd0;
                     end
                 end
             end
@@ -2894,21 +3035,17 @@ always @(*) begin
         2'd3: begin
             core_mac_core_liteethmaccrc32checker_source_source_valid <= core_mac_core_liteethmaccrc32checker_syncfifo_source_valid;
             core_mac_core_liteethmaccrc32checker_syncfifo_source_ready <= core_mac_core_liteethmaccrc32checker_source_source_ready;
-            core_mac_core_liteethmaccrc32checker_source_source_first <= core_mac_core_liteethmaccrc32checker_syncfifo_source_first;
             core_mac_core_liteethmaccrc32checker_source_source_last <= core_mac_core_liteethmaccrc32checker_syncfifo_source_last;
-            core_mac_core_liteethmaccrc32checker_source_source_payload_data <= core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_data;
-            core_mac_core_liteethmaccrc32checker_source_source_payload_last_be <= core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_last_be;
-            core_mac_core_liteethmaccrc32checker_source_source_payload_error <= core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_error;
             core_mac_core_liteethmaccrc32checker_source_source_payload_error <= (core_mac_core_liteethmaccrc32checker_syncfifo_source_payload_error | {1{core_mac_core_liteethmaccrc32checker_crc_error1}});
             core_mac_core_liteethmaccrc32checker_source_source_payload_last_be <= core_mac_core_liteethmaccrc32checker_last_be;
             if ((core_mac_core_liteethmaccrc32checker_source_source_valid & core_mac_core_liteethmaccrc32checker_source_source_ready)) begin
-                udpcore_liteethmac_rxdatapath_bufferizeendpoints_next_state <= 1'd0;
+                liteethmac_rxdatapath_bufferizeendpoints_next_state <= 1'd0;
             end
         end
         default: begin
             core_mac_core_liteethmaccrc32checker_crc_reset <= 1'd1;
             core_mac_core_liteethmaccrc32checker_fifo_reset <= 1'd1;
-            udpcore_liteethmac_rxdatapath_bufferizeendpoints_next_state <= 1'd1;
+            liteethmac_rxdatapath_bufferizeendpoints_next_state <= 1'd1;
         end
     endcase
 end
@@ -2928,13 +3065,49 @@ assign core_mac_core_bufferizeendpoints_source_source_payload_data = core_mac_co
 assign core_mac_core_bufferizeendpoints_source_source_payload_last_be = core_mac_core_bufferizeendpoints_pipe_valid_source_payload_last_be;
 assign core_mac_core_bufferizeendpoints_source_source_payload_error = core_mac_core_bufferizeendpoints_pipe_valid_source_payload_error;
 assign core_mac_core_pulsesynchronizer1_o = (core_mac_core_pulsesynchronizer1_toggle_o ^ core_mac_core_pulsesynchronizer1_toggle_o_r);
+always @(*) begin
+    core_mac_core_rx_padding_length_inc <= 4'd0;
+    case (core_mac_core_rx_padding_sink_payload_last_be)
+        1'd1: begin
+            core_mac_core_rx_padding_length_inc <= 1'd1;
+        end
+        2'd2: begin
+            core_mac_core_rx_padding_length_inc <= 2'd2;
+        end
+        3'd4: begin
+            core_mac_core_rx_padding_length_inc <= 2'd3;
+        end
+        4'd8: begin
+            core_mac_core_rx_padding_length_inc <= 3'd4;
+        end
+        5'd16: begin
+            core_mac_core_rx_padding_length_inc <= 3'd5;
+        end
+        6'd32: begin
+            core_mac_core_rx_padding_length_inc <= 3'd6;
+        end
+        7'd64: begin
+            core_mac_core_rx_padding_length_inc <= 3'd7;
+        end
+        default: begin
+            core_mac_core_rx_padding_length_inc <= 1'd1;
+        end
+    endcase
+end
 assign core_mac_core_rx_padding_source_valid = core_mac_core_rx_padding_sink_valid;
 assign core_mac_core_rx_padding_sink_ready = core_mac_core_rx_padding_source_ready;
 assign core_mac_core_rx_padding_source_first = core_mac_core_rx_padding_sink_first;
 assign core_mac_core_rx_padding_source_last = core_mac_core_rx_padding_sink_last;
 assign core_mac_core_rx_padding_source_payload_data = core_mac_core_rx_padding_sink_payload_data;
 assign core_mac_core_rx_padding_source_payload_last_be = core_mac_core_rx_padding_sink_payload_last_be;
-assign core_mac_core_rx_padding_source_payload_error = core_mac_core_rx_padding_sink_payload_error;
+always @(*) begin
+    core_mac_core_rx_padding_source_payload_error <= 1'd0;
+    if (((core_mac_core_rx_padding_sink_valid & core_mac_core_rx_padding_sink_last) & ((core_mac_core_rx_padding_length + core_mac_core_rx_padding_length_inc) < 6'd60))) begin
+        core_mac_core_rx_padding_source_payload_error <= {1{1'd1}};
+    end else begin
+        core_mac_core_rx_padding_source_payload_error <= core_mac_core_rx_padding_sink_payload_error;
+    end
+end
 assign core_mac_core_cdc_sink_valid = core_mac_core_sink_sink_valid;
 assign core_mac_core_sink_sink_ready = core_mac_core_cdc_sink_ready;
 assign core_mac_core_cdc_sink_first = core_mac_core_sink_sink_first;
@@ -2992,13 +3165,13 @@ always @(*) begin
     end
 end
 assign core_mac_core_cdc_graycounter1_q_next = (core_mac_core_cdc_graycounter1_q_next_binary ^ core_mac_core_cdc_graycounter1_q_next_binary[5:1]);
-assign core_mac_core_rx_preamble_sink_valid = ethphy_source_valid;
-assign ethphy_source_ready = core_mac_core_rx_preamble_sink_ready;
-assign core_mac_core_rx_preamble_sink_first = ethphy_source_first;
-assign core_mac_core_rx_preamble_sink_last = ethphy_source_last;
-assign core_mac_core_rx_preamble_sink_payload_data = ethphy_source_payload_data;
-assign core_mac_core_rx_preamble_sink_payload_last_be = ethphy_source_payload_last_be;
-assign core_mac_core_rx_preamble_sink_payload_error = ethphy_source_payload_error;
+assign core_mac_core_rx_preamble_sink_valid = udpcore_ethphy_source_valid;
+assign udpcore_ethphy_source_ready = core_mac_core_rx_preamble_sink_ready;
+assign core_mac_core_rx_preamble_sink_first = udpcore_ethphy_source_first;
+assign core_mac_core_rx_preamble_sink_last = udpcore_ethphy_source_last;
+assign core_mac_core_rx_preamble_sink_payload_data = udpcore_ethphy_source_payload_data;
+assign core_mac_core_rx_preamble_sink_payload_last_be = udpcore_ethphy_source_payload_last_be;
+assign core_mac_core_rx_preamble_sink_payload_error = udpcore_ethphy_source_payload_error;
 assign core_mac_core_bufferizeendpoints_sink_sink_valid = core_mac_core_rx_preamble_source_valid;
 assign core_mac_core_rx_preamble_source_ready = core_mac_core_bufferizeendpoints_sink_sink_ready;
 assign core_mac_core_bufferizeendpoints_sink_sink_first = core_mac_core_rx_preamble_source_first;
@@ -3028,32 +3201,32 @@ assign core_mac_core_source_payload_data = core_mac_core_source_source_payload_d
 assign core_mac_core_source_payload_last_be = core_mac_core_source_source_payload_last_be;
 assign core_mac_core_source_payload_error = core_mac_core_source_source_payload_error;
 always @(*) begin
-    udpcore_liteethmac_sel0 <= 2'd0;
+    liteethmac_sel0 <= 2'd0;
     if ((core_mac_crossbar_sink_payload_ethernet_type == 12'd2054)) begin
-        udpcore_liteethmac_sel0 <= 1'd1;
+        liteethmac_sel0 <= 1'd1;
     end
     if ((core_mac_crossbar_sink_payload_ethernet_type == 12'd2048)) begin
-        udpcore_liteethmac_sel0 <= 2'd2;
+        liteethmac_sel0 <= 2'd2;
     end
 end
 always @(*) begin
-    udpcore_liteethmac_request <= 2'd0;
-    udpcore_liteethmac_request[0] <= udpcore_liteethmac_status0_ongoing0;
-    udpcore_liteethmac_request[1] <= udpcore_liteethmac_status1_ongoing0;
+    liteethmac_request <= 2'd0;
+    liteethmac_request[0] <= liteethmac_status0_ongoing0;
+    liteethmac_request[1] <= liteethmac_status1_ongoing0;
 end
 always @(*) begin
-    core_mac_crossbar_source_valid <= 1'd0;
-    core_mac_crossbar_source_first <= 1'd0;
-    core_ip_mac_port_sink_ready <= 1'd0;
-    core_mac_crossbar_source_last <= 1'd0;
-    core_mac_crossbar_source_payload_ethernet_type <= 16'd0;
     core_arp_mac_port_sink_ready <= 1'd0;
+    core_ip_mac_port_sink_ready <= 1'd0;
+    core_mac_crossbar_source_first <= 1'd0;
+    core_mac_crossbar_source_last <= 1'd0;
+    core_mac_crossbar_source_payload_data <= 8'd0;
+    core_mac_crossbar_source_payload_error <= 1'd0;
+    core_mac_crossbar_source_payload_ethernet_type <= 16'd0;
+    core_mac_crossbar_source_payload_last_be <= 1'd0;
     core_mac_crossbar_source_payload_sender_mac <= 48'd0;
     core_mac_crossbar_source_payload_target_mac <= 48'd0;
-    core_mac_crossbar_source_payload_data <= 8'd0;
-    core_mac_crossbar_source_payload_last_be <= 1'd0;
-    core_mac_crossbar_source_payload_error <= 1'd0;
-    case (udpcore_liteethmac_grant)
+    core_mac_crossbar_source_valid <= 1'd0;
+    case (liteethmac_grant)
         1'd0: begin
             core_mac_crossbar_source_valid <= core_arp_mac_port_sink_valid;
             core_arp_mac_port_sink_ready <= core_mac_crossbar_source_ready;
@@ -3080,49 +3253,39 @@ always @(*) begin
         end
     endcase
 end
+assign liteethmac_status0_last = ((core_arp_mac_port_sink_valid & core_arp_mac_port_sink_last) & core_arp_mac_port_sink_ready);
+assign liteethmac_status0_ongoing0 = ((core_arp_mac_port_sink_valid | liteethmac_status0_ongoing1) & (~liteethmac_status0_last));
+assign liteethmac_status1_last = ((core_ip_mac_port_sink_valid & core_ip_mac_port_sink_last) & core_ip_mac_port_sink_ready);
+assign liteethmac_status1_ongoing0 = ((core_ip_mac_port_sink_valid | liteethmac_status1_ongoing1) & (~liteethmac_status1_last));
 always @(*) begin
-    udpcore_liteethmac_status0_last <= 1'd0;
-    if (core_arp_mac_port_sink_valid) begin
-        udpcore_liteethmac_status0_last <= (core_arp_mac_port_sink_last & core_arp_mac_port_sink_ready);
-    end
-end
-assign udpcore_liteethmac_status0_ongoing0 = ((core_arp_mac_port_sink_valid | udpcore_liteethmac_status0_ongoing1) & (~udpcore_liteethmac_status0_last));
-always @(*) begin
-    udpcore_liteethmac_status1_last <= 1'd0;
-    if (core_ip_mac_port_sink_valid) begin
-        udpcore_liteethmac_status1_last <= (core_ip_mac_port_sink_last & core_ip_mac_port_sink_ready);
-    end
-end
-assign udpcore_liteethmac_status1_ongoing0 = ((core_ip_mac_port_sink_valid | udpcore_liteethmac_status1_ongoing1) & (~udpcore_liteethmac_status1_last));
-always @(*) begin
-    udpcore_liteethmac_sel1 <= 2'd0;
-    if (udpcore_liteethmac_first) begin
-        udpcore_liteethmac_sel1 <= udpcore_liteethmac_sel0;
+    liteethmac_sel1 <= 2'd0;
+    if ((~liteethmac_sel_locked)) begin
+        liteethmac_sel1 <= liteethmac_sel0;
     end else begin
-        udpcore_liteethmac_sel1 <= udpcore_liteethmac_sel_ongoing;
+        liteethmac_sel1 <= liteethmac_sel_ongoing;
     end
 end
 always @(*) begin
     core_arp_mac_port_source_first <= 1'd0;
     core_arp_mac_port_source_last <= 1'd0;
+    core_arp_mac_port_source_payload_data <= 8'd0;
+    core_arp_mac_port_source_payload_error <= 1'd0;
     core_arp_mac_port_source_payload_ethernet_type <= 16'd0;
+    core_arp_mac_port_source_payload_last_be <= 1'd0;
     core_arp_mac_port_source_payload_sender_mac <= 48'd0;
     core_arp_mac_port_source_payload_target_mac <= 48'd0;
-    core_arp_mac_port_source_payload_data <= 8'd0;
-    core_arp_mac_port_source_payload_last_be <= 1'd0;
-    core_arp_mac_port_source_payload_error <= 1'd0;
-    core_mac_crossbar_sink_ready <= 1'd0;
-    core_ip_mac_port_source_valid <= 1'd0;
+    core_arp_mac_port_source_valid <= 1'd0;
     core_ip_mac_port_source_first <= 1'd0;
     core_ip_mac_port_source_last <= 1'd0;
+    core_ip_mac_port_source_payload_data <= 8'd0;
+    core_ip_mac_port_source_payload_error <= 1'd0;
     core_ip_mac_port_source_payload_ethernet_type <= 16'd0;
+    core_ip_mac_port_source_payload_last_be <= 1'd0;
     core_ip_mac_port_source_payload_sender_mac <= 48'd0;
     core_ip_mac_port_source_payload_target_mac <= 48'd0;
-    core_ip_mac_port_source_payload_data <= 8'd0;
-    core_ip_mac_port_source_payload_last_be <= 1'd0;
-    core_ip_mac_port_source_payload_error <= 1'd0;
-    core_arp_mac_port_source_valid <= 1'd0;
-    case (udpcore_liteethmac_sel1)
+    core_ip_mac_port_source_valid <= 1'd0;
+    core_mac_crossbar_sink_ready <= 1'd0;
+    case (liteethmac_sel1)
         1'd1: begin
             core_arp_mac_port_source_valid <= core_mac_crossbar_sink_valid;
             core_mac_crossbar_sink_ready <= core_arp_mac_port_source_ready;
@@ -3152,13 +3315,8 @@ always @(*) begin
         end
     endcase
 end
-always @(*) begin
-    udpcore_liteethmac_last <= 1'd0;
-    if (core_mac_crossbar_sink_valid) begin
-        udpcore_liteethmac_last <= (core_mac_crossbar_sink_last & core_mac_crossbar_sink_ready);
-    end
-end
-assign udpcore_liteethmac_ongoing0 = ((core_mac_crossbar_sink_valid | udpcore_liteethmac_ongoing1) & (~udpcore_liteethmac_last));
+assign liteethmac_last = ((core_mac_crossbar_sink_valid & core_mac_crossbar_sink_last) & core_mac_crossbar_sink_ready);
+assign liteethmac_ongoing0 = ((core_mac_crossbar_sink_valid | liteethmac_ongoing1) & (~liteethmac_last));
 always @(*) begin
     core_mac_packetizer_header <= 112'd0;
     core_mac_packetizer_header[111:96] <= {core_mac_packetizer_sink_payload_ethernet_type[7:0], core_mac_packetizer_sink_payload_ethernet_type[15:8]};
@@ -3178,28 +3336,28 @@ always @(*) begin
 end
 assign core_mac_packetizer_source_payload_error = core_mac_packetizer_sink_payload_error;
 always @(*) begin
-    core_mac_packetizer_source_valid <= 1'd0;
+    core_mac_packetizer_count_liteethmac_fsm0_next_value0 <= 4'd0;
+    core_mac_packetizer_count_liteethmac_fsm0_next_value_ce0 <= 1'd0;
+    core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value0 <= 1'd0;
+    core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value_ce0 <= 1'd0;
+    core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value1 <= 1'd0;
+    core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value_ce1 <= 1'd0;
+    core_mac_packetizer_is_ongoing0 <= 1'd0;
+    core_mac_packetizer_is_ongoing1 <= 1'd0;
+    core_mac_packetizer_is_ongoing2 <= 1'd0;
+    core_mac_packetizer_sink_ready <= 1'd0;
     core_mac_packetizer_source_last_a <= 1'd0;
     core_mac_packetizer_source_last_b <= 1'd0;
     core_mac_packetizer_source_last_s <= 1'd0;
     core_mac_packetizer_source_payload_data <= 8'd0;
     core_mac_packetizer_source_payload_last_be <= 1'd0;
-    udpcore_liteethmac_fsm0_next_state0 <= 2'd0;
-    core_mac_packetizer_count_liteethmac_fsm0_next_value0 <= 4'd0;
-    core_mac_packetizer_count_liteethmac_fsm0_next_value_ce0 <= 1'd0;
+    core_mac_packetizer_source_valid <= 1'd0;
     core_mac_packetizer_sr_load <= 1'd0;
     core_mac_packetizer_sr_shift <= 1'd0;
-    core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value1 <= 1'd0;
-    core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value_ce1 <= 1'd0;
-    core_mac_packetizer_is_ongoing0 <= 1'd0;
-    core_mac_packetizer_is_ongoing1 <= 1'd0;
-    core_mac_packetizer_sink_ready <= 1'd0;
-    udpcore_liteethmac_fsm1_next_state0 <= 1'd0;
-    core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value0 <= 1'd0;
-    core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value_ce0 <= 1'd0;
-    core_mac_packetizer_is_ongoing2 <= 1'd0;
-    udpcore_liteethmac_fsm0_next_state0 <= udpcore_liteethmac_fsm0_state0;
-    case (udpcore_liteethmac_fsm0_state0)
+    liteethmac_fsm0_next_state0 <= 2'd0;
+    liteethmac_fsm1_next_state0 <= 1'd0;
+    liteethmac_fsm0_next_state0 <= liteethmac_fsm0_state0;
+    case (liteethmac_fsm0_state0)
         1'd1: begin
             core_mac_packetizer_source_valid <= 1'd1;
             core_mac_packetizer_source_last_a <= 1'd0;
@@ -3208,7 +3366,7 @@ always @(*) begin
                 core_mac_packetizer_sr_shift <= 1'd1;
                 if ((core_mac_packetizer_count == 4'd13)) begin
                     core_mac_packetizer_sr_shift <= 1'd0;
-                    udpcore_liteethmac_fsm0_next_state0 <= 2'd2;
+                    liteethmac_fsm0_next_state0 <= 2'd2;
                     core_mac_packetizer_count_liteethmac_fsm0_next_value0 <= (core_mac_packetizer_count + 1'd1);
                     core_mac_packetizer_count_liteethmac_fsm0_next_value_ce0 <= 1'd1;
                 end else begin
@@ -3224,7 +3382,7 @@ always @(*) begin
             if ((core_mac_packetizer_source_valid & core_mac_packetizer_source_ready)) begin
                 core_mac_packetizer_sink_ready <= 1'd1;
                 if (core_mac_packetizer_source_last) begin
-                    udpcore_liteethmac_fsm0_next_state0 <= 1'd0;
+                    liteethmac_fsm0_next_state0 <= 1'd0;
                 end
             end
             core_mac_packetizer_is_ongoing0 <= 1'd1;
@@ -3246,24 +3404,24 @@ always @(*) begin
                     core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value1 <= 1'd1;
                     core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value_ce1 <= 1'd1;
                     if (1'd0) begin
-                        udpcore_liteethmac_fsm0_next_state0 <= 2'd2;
+                        liteethmac_fsm0_next_state0 <= 2'd2;
                     end else begin
-                        udpcore_liteethmac_fsm0_next_state0 <= 1'd1;
+                        liteethmac_fsm0_next_state0 <= 1'd1;
                     end
                 end
             end
             core_mac_packetizer_is_ongoing2 <= 1'd1;
         end
     endcase
-    udpcore_liteethmac_fsm1_next_state0 <= udpcore_liteethmac_fsm1_state0;
-    case (udpcore_liteethmac_fsm1_state0)
+    liteethmac_fsm1_next_state0 <= liteethmac_fsm1_state0;
+    case (liteethmac_fsm1_state0)
         1'd1: begin
             core_mac_packetizer_source_last_b <= 1'd1;
             core_mac_packetizer_source_last_s <= 1'd1;
             core_mac_packetizer_source_payload_last_be <= core_mac_packetizer_delayed_last_be;
             core_mac_packetizer_sink_ready <= 1'd0;
             if (core_mac_packetizer_source_ready) begin
-                udpcore_liteethmac_fsm1_next_state0 <= 1'd0;
+                liteethmac_fsm1_next_state0 <= 1'd0;
             end
         end
         default: begin
@@ -3274,7 +3432,7 @@ always @(*) begin
                 if ((core_mac_packetizer_source_ready & core_mac_packetizer_source_valid)) begin
                     core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value0 <= core_mac_packetizer_new_last_be;
                     core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value_ce0 <= 1'd1;
-                    udpcore_liteethmac_fsm1_next_state0 <= 1'd1;
+                    liteethmac_fsm1_next_state0 <= 1'd1;
                 end
             end else begin
                 if (core_mac_packetizer_in_data_copy) begin
@@ -3294,9 +3452,9 @@ always @(*) begin
     endcase
 end
 assign core_mac_depacketizer_header = core_mac_depacketizer_sr;
-assign core_mac_depacketizer_source_payload_ethernet_type = {rhs_slice_proxy1[7:0], rhs_slice_proxy0[15:8]};
-assign core_mac_depacketizer_source_payload_sender_mac = {rhs_slice_proxy7[7:0], rhs_slice_proxy6[15:8], rhs_slice_proxy5[23:16], rhs_slice_proxy4[31:24], rhs_slice_proxy3[39:32], rhs_slice_proxy2[47:40]};
-assign core_mac_depacketizer_source_payload_target_mac = {rhs_slice_proxy13[7:0], rhs_slice_proxy12[15:8], rhs_slice_proxy11[23:16], rhs_slice_proxy10[31:24], rhs_slice_proxy9[39:32], rhs_slice_proxy8[47:40]};
+assign core_mac_depacketizer_source_payload_ethernet_type = {core_mac_depacketizer_header[103:96], core_mac_depacketizer_header[111:104]};
+assign core_mac_depacketizer_source_payload_sender_mac = {core_mac_depacketizer_header[55:48], core_mac_depacketizer_header[63:56], core_mac_depacketizer_header[71:64], core_mac_depacketizer_header[79:72], core_mac_depacketizer_header[87:80], core_mac_depacketizer_header[95:88]};
+assign core_mac_depacketizer_source_payload_target_mac = {core_mac_depacketizer_header[7:0], core_mac_depacketizer_header[15:8], core_mac_depacketizer_header[23:16], core_mac_depacketizer_header[31:24], core_mac_depacketizer_header[39:32], core_mac_depacketizer_header[47:40]};
 assign core_mac_depacketizer_source_payload_error = core_mac_depacketizer_sink_payload_error;
 assign core_mac_depacketizer_sink_last_be = core_mac_depacketizer_sink_last;
 assign core_mac_depacketizer_new_last_be = {core_mac_depacketizer_sink_last_be};
@@ -3310,28 +3468,28 @@ always @(*) begin
     end
 end
 always @(*) begin
-    core_mac_depacketizer_sink_ready <= 1'd0;
-    udpcore_liteethmac_fsm0_next_state1 <= 2'd0;
     core_mac_depacketizer_count_liteethmac_fsm0_next_value2 <= 4'd0;
-    core_mac_depacketizer_is_ongoing2 <= 1'd0;
     core_mac_depacketizer_count_liteethmac_fsm0_next_value_ce2 <= 1'd0;
-    core_mac_depacketizer_is_ongoing3 <= 1'd0;
+    core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value1 <= 1'd0;
+    core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value_ce1 <= 1'd0;
     core_mac_depacketizer_fsm_from_idle_liteethmac_fsm0_next_value3 <= 1'd0;
     core_mac_depacketizer_fsm_from_idle_liteethmac_fsm0_next_value_ce3 <= 1'd0;
-    core_mac_depacketizer_source_valid <= 1'd0;
+    core_mac_depacketizer_is_ongoing0 <= 1'd0;
+    core_mac_depacketizer_is_ongoing1 <= 1'd0;
+    core_mac_depacketizer_is_ongoing2 <= 1'd0;
+    core_mac_depacketizer_is_ongoing3 <= 1'd0;
+    core_mac_depacketizer_sink_ready <= 1'd0;
     core_mac_depacketizer_source_last_a <= 1'd0;
     core_mac_depacketizer_source_last_b <= 1'd0;
     core_mac_depacketizer_source_last_s <= 1'd0;
     core_mac_depacketizer_source_payload_data <= 8'd0;
     core_mac_depacketizer_source_payload_last_be <= 1'd0;
-    udpcore_liteethmac_fsm1_next_state1 <= 1'd0;
+    core_mac_depacketizer_source_valid <= 1'd0;
     core_mac_depacketizer_sr_shift <= 1'd0;
-    core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value1 <= 1'd0;
-    core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value_ce1 <= 1'd0;
-    core_mac_depacketizer_is_ongoing0 <= 1'd0;
-    core_mac_depacketizer_is_ongoing1 <= 1'd0;
-    udpcore_liteethmac_fsm0_next_state1 <= udpcore_liteethmac_fsm0_state1;
-    case (udpcore_liteethmac_fsm0_state1)
+    liteethmac_fsm0_next_state1 <= 2'd0;
+    liteethmac_fsm1_next_state1 <= 1'd0;
+    liteethmac_fsm0_next_state1 <= liteethmac_fsm0_state1;
+    case (liteethmac_fsm0_state1)
         1'd1: begin
             core_mac_depacketizer_sink_ready <= 1'd1;
             if (core_mac_depacketizer_sink_valid) begin
@@ -3339,7 +3497,7 @@ always @(*) begin
                 core_mac_depacketizer_count_liteethmac_fsm0_next_value_ce2 <= 1'd1;
                 core_mac_depacketizer_sr_shift <= 1'd1;
                 if ((core_mac_depacketizer_count == 4'd13)) begin
-                    udpcore_liteethmac_fsm0_next_state1 <= 2'd2;
+                    liteethmac_fsm0_next_state1 <= 2'd2;
                     core_mac_depacketizer_count_liteethmac_fsm0_next_value2 <= (core_mac_depacketizer_count + 1'd1);
                     core_mac_depacketizer_count_liteethmac_fsm0_next_value_ce2 <= 1'd1;
                 end
@@ -3352,7 +3510,7 @@ always @(*) begin
             core_mac_depacketizer_source_payload_data <= core_mac_depacketizer_sink_payload_data;
             if ((core_mac_depacketizer_source_valid & core_mac_depacketizer_source_ready)) begin
                 if (core_mac_depacketizer_source_last) begin
-                    udpcore_liteethmac_fsm0_next_state1 <= 1'd0;
+                    liteethmac_fsm0_next_state1 <= 1'd0;
                 end
             end
             core_mac_depacketizer_is_ongoing0 <= 1'd1;
@@ -3371,22 +3529,22 @@ always @(*) begin
                 core_mac_depacketizer_fsm_from_idle_liteethmac_fsm0_next_value3 <= 1'd1;
                 core_mac_depacketizer_fsm_from_idle_liteethmac_fsm0_next_value_ce3 <= 1'd1;
                 if (1'd0) begin
-                    udpcore_liteethmac_fsm0_next_state1 <= 2'd2;
+                    liteethmac_fsm0_next_state1 <= 2'd2;
                 end else begin
-                    udpcore_liteethmac_fsm0_next_state1 <= 1'd1;
+                    liteethmac_fsm0_next_state1 <= 1'd1;
                 end
             end
         end
     endcase
-    udpcore_liteethmac_fsm1_next_state1 <= udpcore_liteethmac_fsm1_state1;
-    case (udpcore_liteethmac_fsm1_state1)
+    liteethmac_fsm1_next_state1 <= liteethmac_fsm1_state1;
+    case (liteethmac_fsm1_state1)
         1'd1: begin
             core_mac_depacketizer_source_last_b <= 1'd1;
             core_mac_depacketizer_source_last_s <= 1'd1;
             core_mac_depacketizer_source_payload_last_be <= core_mac_depacketizer_delayed_last_be;
             core_mac_depacketizer_sink_ready <= 1'd0;
             if ((core_mac_depacketizer_source_ready & core_mac_depacketizer_source_valid)) begin
-                udpcore_liteethmac_fsm1_next_state1 <= 1'd0;
+                liteethmac_fsm1_next_state1 <= 1'd0;
             end
         end
         default: begin
@@ -3397,7 +3555,7 @@ always @(*) begin
                 if (((core_mac_depacketizer_source_ready & core_mac_depacketizer_source_valid) | ((~core_mac_depacketizer_was_in_copy) & core_mac_depacketizer_is_in_copy))) begin
                     core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value1 <= core_mac_depacketizer_new_last_be;
                     core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value_ce1 <= 1'd1;
-                    udpcore_liteethmac_fsm1_next_state1 <= 1'd1;
+                    liteethmac_fsm1_next_state1 <= 1'd1;
                 end
             end else begin
                 if (core_mac_depacketizer_sink_last) begin
@@ -3465,8 +3623,8 @@ assign core_arp_tx_packetizer_sink_param_sender_mac = 48'd186934156644303;
 assign core_arp_tx_packetizer_sink_param_sender_ip = 32'd3232281138;
 assign core_arp_tx_packetizer_sink_param_target_ip = core_arp_tx_sink_sink_payload_ip_address;
 always @(*) begin
-    core_arp_tx_packetizer_sink_param_target_mac <= 48'd0;
     core_arp_tx_packetizer_sink_param_opcode <= 16'd0;
+    core_arp_tx_packetizer_sink_param_target_mac <= 48'd0;
     if (core_arp_tx_sink_sink_payload_reply) begin
         core_arp_tx_packetizer_sink_param_opcode <= 2'd2;
         core_arp_tx_packetizer_sink_param_target_mac <= core_arp_tx_sink_sink_payload_mac_address;
@@ -3499,11 +3657,11 @@ always @(*) begin
 end
 always @(*) begin
     core_arp_tx_packetizer_header <= 224'd0;
-    core_arp_tx_packetizer_header[39:32] <= {core_arp_tx_packetizer_sink_param_hwsize[7:0]};
+    core_arp_tx_packetizer_header[39:32] <= {core_arp_tx_packetizer_sink_param_hwsize};
     core_arp_tx_packetizer_header[15:0] <= {core_arp_tx_packetizer_sink_param_hwtype[7:0], core_arp_tx_packetizer_sink_param_hwtype[15:8]};
     core_arp_tx_packetizer_header[63:48] <= {core_arp_tx_packetizer_sink_param_opcode[7:0], core_arp_tx_packetizer_sink_param_opcode[15:8]};
     core_arp_tx_packetizer_header[31:16] <= {core_arp_tx_packetizer_sink_param_proto[7:0], core_arp_tx_packetizer_sink_param_proto[15:8]};
-    core_arp_tx_packetizer_header[47:40] <= {core_arp_tx_packetizer_sink_param_protosize[7:0]};
+    core_arp_tx_packetizer_header[47:40] <= {core_arp_tx_packetizer_sink_param_protosize};
     core_arp_tx_packetizer_header[143:112] <= {core_arp_tx_packetizer_sink_param_sender_ip[7:0], core_arp_tx_packetizer_sink_param_sender_ip[15:8], core_arp_tx_packetizer_sink_param_sender_ip[23:16], core_arp_tx_packetizer_sink_param_sender_ip[31:24]};
     core_arp_tx_packetizer_header[111:64] <= {core_arp_tx_packetizer_sink_param_sender_mac[7:0], core_arp_tx_packetizer_sink_param_sender_mac[15:8], core_arp_tx_packetizer_sink_param_sender_mac[23:16], core_arp_tx_packetizer_sink_param_sender_mac[31:24], core_arp_tx_packetizer_sink_param_sender_mac[39:32], core_arp_tx_packetizer_sink_param_sender_mac[47:40]};
     core_arp_tx_packetizer_header[223:192] <= {core_arp_tx_packetizer_sink_param_target_ip[7:0], core_arp_tx_packetizer_sink_param_target_ip[15:8], core_arp_tx_packetizer_sink_param_target_ip[23:16], core_arp_tx_packetizer_sink_param_target_ip[31:24]};
@@ -3524,26 +3682,26 @@ assign core_arp_tx_packetizer_source_payload_error = core_arp_tx_packetizer_sink
 always @(*) begin
     core_arp_tx_packetizer_count_liteetharp_fsm0_next_value0 <= 5'd0;
     core_arp_tx_packetizer_count_liteetharp_fsm0_next_value_ce0 <= 1'd0;
+    core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value0 <= 1'd0;
+    core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value_ce0 <= 1'd0;
+    core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value1 <= 1'd0;
+    core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value_ce1 <= 1'd0;
+    core_arp_tx_packetizer_is_ongoing0 <= 1'd0;
+    core_arp_tx_packetizer_is_ongoing1 <= 1'd0;
+    core_arp_tx_packetizer_is_ongoing2 <= 1'd0;
+    core_arp_tx_packetizer_sink_ready <= 1'd0;
     core_arp_tx_packetizer_source_last_a <= 1'd0;
     core_arp_tx_packetizer_source_last_b <= 1'd0;
-    core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value1 <= 1'd0;
     core_arp_tx_packetizer_source_last_s <= 1'd0;
-    core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value_ce1 <= 1'd0;
-    core_arp_tx_packetizer_source_valid <= 1'd0;
-    udpcore_liteetharptx_fsm1_next_state <= 1'd0;
-    core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value0 <= 1'd0;
     core_arp_tx_packetizer_source_payload_data <= 8'd0;
-    core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value_ce0 <= 1'd0;
     core_arp_tx_packetizer_source_payload_last_be <= 1'd0;
-    core_arp_tx_packetizer_is_ongoing0 <= 1'd0;
+    core_arp_tx_packetizer_source_valid <= 1'd0;
     core_arp_tx_packetizer_sr_load <= 1'd0;
-    core_arp_tx_packetizer_is_ongoing1 <= 1'd0;
     core_arp_tx_packetizer_sr_shift <= 1'd0;
-    core_arp_tx_packetizer_sink_ready <= 1'd0;
-    core_arp_tx_packetizer_is_ongoing2 <= 1'd0;
-    udpcore_liteetharptx_fsm0_next_state <= 2'd0;
-    udpcore_liteetharptx_fsm0_next_state <= udpcore_liteetharptx_fsm0_state;
-    case (udpcore_liteetharptx_fsm0_state)
+    liteetharptx_fsm0_next_state <= 2'd0;
+    liteetharptx_fsm1_next_state <= 1'd0;
+    liteetharptx_fsm0_next_state <= liteetharptx_fsm0_state;
+    case (liteetharptx_fsm0_state)
         1'd1: begin
             core_arp_tx_packetizer_source_valid <= 1'd1;
             core_arp_tx_packetizer_source_last_a <= 1'd0;
@@ -3552,7 +3710,7 @@ always @(*) begin
                 core_arp_tx_packetizer_sr_shift <= 1'd1;
                 if ((core_arp_tx_packetizer_count == 5'd27)) begin
                     core_arp_tx_packetizer_sr_shift <= 1'd0;
-                    udpcore_liteetharptx_fsm0_next_state <= 2'd2;
+                    liteetharptx_fsm0_next_state <= 2'd2;
                     core_arp_tx_packetizer_count_liteetharp_fsm0_next_value0 <= (core_arp_tx_packetizer_count + 1'd1);
                     core_arp_tx_packetizer_count_liteetharp_fsm0_next_value_ce0 <= 1'd1;
                 end else begin
@@ -3568,7 +3726,7 @@ always @(*) begin
             if ((core_arp_tx_packetizer_source_valid & core_arp_tx_packetizer_source_ready)) begin
                 core_arp_tx_packetizer_sink_ready <= 1'd1;
                 if (core_arp_tx_packetizer_source_last) begin
-                    udpcore_liteetharptx_fsm0_next_state <= 1'd0;
+                    liteetharptx_fsm0_next_state <= 1'd0;
                 end
             end
             core_arp_tx_packetizer_is_ongoing0 <= 1'd1;
@@ -3590,24 +3748,24 @@ always @(*) begin
                     core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value1 <= 1'd1;
                     core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value_ce1 <= 1'd1;
                     if (1'd0) begin
-                        udpcore_liteetharptx_fsm0_next_state <= 2'd2;
+                        liteetharptx_fsm0_next_state <= 2'd2;
                     end else begin
-                        udpcore_liteetharptx_fsm0_next_state <= 1'd1;
+                        liteetharptx_fsm0_next_state <= 1'd1;
                     end
                 end
             end
             core_arp_tx_packetizer_is_ongoing2 <= 1'd1;
         end
     endcase
-    udpcore_liteetharptx_fsm1_next_state <= udpcore_liteetharptx_fsm1_state;
-    case (udpcore_liteetharptx_fsm1_state)
+    liteetharptx_fsm1_next_state <= liteetharptx_fsm1_state;
+    case (liteetharptx_fsm1_state)
         1'd1: begin
             core_arp_tx_packetizer_source_last_b <= 1'd1;
             core_arp_tx_packetizer_source_last_s <= 1'd1;
             core_arp_tx_packetizer_source_payload_last_be <= core_arp_tx_packetizer_delayed_last_be;
             core_arp_tx_packetizer_sink_ready <= 1'd0;
             if (core_arp_tx_packetizer_source_ready) begin
-                udpcore_liteetharptx_fsm1_next_state <= 1'd0;
+                liteetharptx_fsm1_next_state <= 1'd0;
             end
         end
         default: begin
@@ -3618,7 +3776,7 @@ always @(*) begin
                 if ((core_arp_tx_packetizer_source_ready & core_arp_tx_packetizer_source_valid)) begin
                     core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value0 <= core_arp_tx_packetizer_new_last_be;
                     core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value_ce0 <= 1'd1;
-                    udpcore_liteetharptx_fsm1_next_state <= 1'd1;
+                    liteetharptx_fsm1_next_state <= 1'd1;
                 end
             end else begin
                 if (core_arp_tx_packetizer_in_data_copy) begin
@@ -3638,15 +3796,15 @@ always @(*) begin
     endcase
 end
 always @(*) begin
-    core_arp_tx_source_source_valid <= 1'd0;
-    core_arp_tx_sink_sink_ready <= 1'd0;
-    udpcore_liteetharptx_next_state <= 1'd0;
     core_arp_tx_counter_liteetharp_next_value <= 6'd0;
-    core_arp_tx_packetizer_sink_valid <= 1'd0;
     core_arp_tx_counter_liteetharp_next_value_ce <= 1'd0;
+    core_arp_tx_packetizer_sink_valid <= 1'd0;
     core_arp_tx_packetizer_source_ready <= 1'd0;
-    udpcore_liteetharptx_next_state <= udpcore_liteetharptx_state;
-    case (udpcore_liteetharptx_state)
+    core_arp_tx_sink_sink_ready <= 1'd0;
+    core_arp_tx_source_source_valid <= 1'd0;
+    liteetharptx_next_state <= 1'd0;
+    liteetharptx_next_state <= liteetharptx_state;
+    case (liteetharptx_state)
         1'd1: begin
             core_arp_tx_packetizer_sink_valid <= 1'd1;
             core_arp_tx_source_source_valid <= core_arp_tx_packetizer_source_valid;
@@ -3656,7 +3814,7 @@ always @(*) begin
                 core_arp_tx_counter_liteetharp_next_value_ce <= 1'd1;
                 if (core_arp_tx_source_source_last) begin
                     core_arp_tx_sink_sink_ready <= 1'd1;
-                    udpcore_liteetharptx_next_state <= 1'd0;
+                    liteetharptx_next_state <= 1'd0;
                 end
             end
         end
@@ -3664,7 +3822,7 @@ always @(*) begin
             core_arp_tx_counter_liteetharp_next_value <= 1'd0;
             core_arp_tx_counter_liteetharp_next_value_ce <= 1'd1;
             if (core_arp_tx_sink_sink_valid) begin
-                udpcore_liteetharptx_next_state <= 1'd1;
+                liteetharptx_next_state <= 1'd1;
             end
         end
     endcase
@@ -3680,8 +3838,8 @@ assign core_arp_rx_depacketizer_sink_payload_data = core_arp_rx_sink_sink_payloa
 assign core_arp_rx_depacketizer_sink_payload_last_be = core_arp_rx_sink_sink_payload_last_be;
 assign core_arp_rx_depacketizer_sink_payload_error = core_arp_rx_sink_sink_payload_error;
 always @(*) begin
-    core_arp_rx_request <= 1'd0;
     core_arp_rx_reply <= 1'd0;
+    core_arp_rx_request <= 1'd0;
     case (core_arp_rx_depacketizer_source_param_opcode)
         1'd1: begin
             core_arp_rx_request <= 1'd1;
@@ -3696,15 +3854,15 @@ end
 assign core_arp_rx_source_source_payload_ip_address = core_arp_rx_depacketizer_source_param_sender_ip;
 assign core_arp_rx_source_source_payload_mac_address = core_arp_rx_depacketizer_source_param_sender_mac;
 assign core_arp_rx_depacketizer_header = core_arp_rx_depacketizer_sr;
-assign core_arp_rx_depacketizer_source_param_hwsize = {rhs_slice_proxy14[7:0]};
-assign core_arp_rx_depacketizer_source_param_hwtype = {rhs_slice_proxy16[7:0], rhs_slice_proxy15[15:8]};
-assign core_arp_rx_depacketizer_source_param_opcode = {rhs_slice_proxy18[7:0], rhs_slice_proxy17[15:8]};
-assign core_arp_rx_depacketizer_source_param_proto = {rhs_slice_proxy20[7:0], rhs_slice_proxy19[15:8]};
-assign core_arp_rx_depacketizer_source_param_protosize = {rhs_slice_proxy21[7:0]};
-assign core_arp_rx_depacketizer_source_param_sender_ip = {rhs_slice_proxy25[7:0], rhs_slice_proxy24[15:8], rhs_slice_proxy23[23:16], rhs_slice_proxy22[31:24]};
-assign core_arp_rx_depacketizer_source_param_sender_mac = {rhs_slice_proxy31[7:0], rhs_slice_proxy30[15:8], rhs_slice_proxy29[23:16], rhs_slice_proxy28[31:24], rhs_slice_proxy27[39:32], rhs_slice_proxy26[47:40]};
-assign core_arp_rx_depacketizer_source_param_target_ip = {rhs_slice_proxy35[7:0], rhs_slice_proxy34[15:8], rhs_slice_proxy33[23:16], rhs_slice_proxy32[31:24]};
-assign core_arp_rx_depacketizer_source_param_target_mac = {rhs_slice_proxy41[7:0], rhs_slice_proxy40[15:8], rhs_slice_proxy39[23:16], rhs_slice_proxy38[31:24], rhs_slice_proxy37[39:32], rhs_slice_proxy36[47:40]};
+assign core_arp_rx_depacketizer_source_param_hwsize = {core_arp_rx_depacketizer_header[39:32]};
+assign core_arp_rx_depacketizer_source_param_hwtype = {core_arp_rx_depacketizer_header[7:0], core_arp_rx_depacketizer_header[15:8]};
+assign core_arp_rx_depacketizer_source_param_opcode = {core_arp_rx_depacketizer_header[55:48], core_arp_rx_depacketizer_header[63:56]};
+assign core_arp_rx_depacketizer_source_param_proto = {core_arp_rx_depacketizer_header[23:16], core_arp_rx_depacketizer_header[31:24]};
+assign core_arp_rx_depacketizer_source_param_protosize = {core_arp_rx_depacketizer_header[47:40]};
+assign core_arp_rx_depacketizer_source_param_sender_ip = {core_arp_rx_depacketizer_header[119:112], core_arp_rx_depacketizer_header[127:120], core_arp_rx_depacketizer_header[135:128], core_arp_rx_depacketizer_header[143:136]};
+assign core_arp_rx_depacketizer_source_param_sender_mac = {core_arp_rx_depacketizer_header[71:64], core_arp_rx_depacketizer_header[79:72], core_arp_rx_depacketizer_header[87:80], core_arp_rx_depacketizer_header[95:88], core_arp_rx_depacketizer_header[103:96], core_arp_rx_depacketizer_header[111:104]};
+assign core_arp_rx_depacketizer_source_param_target_ip = {core_arp_rx_depacketizer_header[199:192], core_arp_rx_depacketizer_header[207:200], core_arp_rx_depacketizer_header[215:208], core_arp_rx_depacketizer_header[223:216]};
+assign core_arp_rx_depacketizer_source_param_target_mac = {core_arp_rx_depacketizer_header[151:144], core_arp_rx_depacketizer_header[159:152], core_arp_rx_depacketizer_header[167:160], core_arp_rx_depacketizer_header[175:168], core_arp_rx_depacketizer_header[183:176], core_arp_rx_depacketizer_header[191:184]};
 assign core_arp_rx_depacketizer_source_payload_error = core_arp_rx_depacketizer_sink_payload_error;
 assign core_arp_rx_depacketizer_sink_last_be = core_arp_rx_depacketizer_sink_last;
 assign core_arp_rx_depacketizer_new_last_be = {core_arp_rx_depacketizer_sink_last_be};
@@ -3718,28 +3876,28 @@ always @(*) begin
     end
 end
 always @(*) begin
-    core_arp_rx_depacketizer_source_last_a <= 1'd0;
-    core_arp_rx_depacketizer_source_last_b <= 1'd0;
-    core_arp_rx_depacketizer_source_last_s <= 1'd0;
-    udpcore_liteetharprx_fsm0_next_state <= 2'd0;
     core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value2 <= 5'd0;
     core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value_ce2 <= 1'd0;
-    core_arp_rx_depacketizer_source_valid <= 1'd0;
+    core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value1 <= 1'd0;
+    core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value_ce1 <= 1'd0;
     core_arp_rx_depacketizer_fsm_from_idle_liteetharp_fsm0_next_value3 <= 1'd0;
     core_arp_rx_depacketizer_fsm_from_idle_liteetharp_fsm0_next_value_ce3 <= 1'd0;
-    core_arp_rx_depacketizer_source_payload_data <= 8'd0;
-    core_arp_rx_depacketizer_source_payload_last_be <= 1'd0;
     core_arp_rx_depacketizer_is_ongoing0 <= 1'd0;
     core_arp_rx_depacketizer_is_ongoing1 <= 1'd0;
-    udpcore_liteetharprx_fsm1_next_state <= 1'd0;
-    core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value1 <= 1'd0;
-    core_arp_rx_depacketizer_sr_shift <= 1'd0;
-    core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value_ce1 <= 1'd0;
     core_arp_rx_depacketizer_is_ongoing2 <= 1'd0;
     core_arp_rx_depacketizer_is_ongoing3 <= 1'd0;
     core_arp_rx_depacketizer_sink_ready <= 1'd0;
-    udpcore_liteetharprx_fsm0_next_state <= udpcore_liteetharprx_fsm0_state;
-    case (udpcore_liteetharprx_fsm0_state)
+    core_arp_rx_depacketizer_source_last_a <= 1'd0;
+    core_arp_rx_depacketizer_source_last_b <= 1'd0;
+    core_arp_rx_depacketizer_source_last_s <= 1'd0;
+    core_arp_rx_depacketizer_source_payload_data <= 8'd0;
+    core_arp_rx_depacketizer_source_payload_last_be <= 1'd0;
+    core_arp_rx_depacketizer_source_valid <= 1'd0;
+    core_arp_rx_depacketizer_sr_shift <= 1'd0;
+    liteetharprx_fsm0_next_state <= 2'd0;
+    liteetharprx_fsm1_next_state <= 1'd0;
+    liteetharprx_fsm0_next_state <= liteetharprx_fsm0_state;
+    case (liteetharprx_fsm0_state)
         1'd1: begin
             core_arp_rx_depacketizer_sink_ready <= 1'd1;
             if (core_arp_rx_depacketizer_sink_valid) begin
@@ -3747,7 +3905,7 @@ always @(*) begin
                 core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value_ce2 <= 1'd1;
                 core_arp_rx_depacketizer_sr_shift <= 1'd1;
                 if ((core_arp_rx_depacketizer_count == 5'd27)) begin
-                    udpcore_liteetharprx_fsm0_next_state <= 2'd2;
+                    liteetharprx_fsm0_next_state <= 2'd2;
                     core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value2 <= (core_arp_rx_depacketizer_count + 1'd1);
                     core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value_ce2 <= 1'd1;
                 end
@@ -3760,7 +3918,7 @@ always @(*) begin
             core_arp_rx_depacketizer_source_payload_data <= core_arp_rx_depacketizer_sink_payload_data;
             if ((core_arp_rx_depacketizer_source_valid & core_arp_rx_depacketizer_source_ready)) begin
                 if (core_arp_rx_depacketizer_source_last) begin
-                    udpcore_liteetharprx_fsm0_next_state <= 1'd0;
+                    liteetharprx_fsm0_next_state <= 1'd0;
                 end
             end
             core_arp_rx_depacketizer_is_ongoing0 <= 1'd1;
@@ -3779,22 +3937,22 @@ always @(*) begin
                 core_arp_rx_depacketizer_fsm_from_idle_liteetharp_fsm0_next_value3 <= 1'd1;
                 core_arp_rx_depacketizer_fsm_from_idle_liteetharp_fsm0_next_value_ce3 <= 1'd1;
                 if (1'd0) begin
-                    udpcore_liteetharprx_fsm0_next_state <= 2'd2;
+                    liteetharprx_fsm0_next_state <= 2'd2;
                 end else begin
-                    udpcore_liteetharprx_fsm0_next_state <= 1'd1;
+                    liteetharprx_fsm0_next_state <= 1'd1;
                 end
             end
         end
     endcase
-    udpcore_liteetharprx_fsm1_next_state <= udpcore_liteetharprx_fsm1_state;
-    case (udpcore_liteetharprx_fsm1_state)
+    liteetharprx_fsm1_next_state <= liteetharprx_fsm1_state;
+    case (liteetharprx_fsm1_state)
         1'd1: begin
             core_arp_rx_depacketizer_source_last_b <= 1'd1;
             core_arp_rx_depacketizer_source_last_s <= 1'd1;
             core_arp_rx_depacketizer_source_payload_last_be <= core_arp_rx_depacketizer_delayed_last_be;
             core_arp_rx_depacketizer_sink_ready <= 1'd0;
             if ((core_arp_rx_depacketizer_source_ready & core_arp_rx_depacketizer_source_valid)) begin
-                udpcore_liteetharprx_fsm1_next_state <= 1'd0;
+                liteetharprx_fsm1_next_state <= 1'd0;
             end
         end
         default: begin
@@ -3805,7 +3963,7 @@ always @(*) begin
                 if (((core_arp_rx_depacketizer_source_ready & core_arp_rx_depacketizer_source_valid) | ((~core_arp_rx_depacketizer_was_in_copy) & core_arp_rx_depacketizer_is_in_copy))) begin
                     core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value1 <= core_arp_rx_depacketizer_new_last_be;
                     core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value_ce1 <= 1'd1;
-                    udpcore_liteetharprx_fsm1_next_state <= 1'd1;
+                    liteetharprx_fsm1_next_state <= 1'd1;
                 end
             end else begin
                 if (core_arp_rx_depacketizer_sink_last) begin
@@ -3825,126 +3983,252 @@ end
 always @(*) begin
     core_arp_rx_depacketizer_source_ready <= 1'd0;
     core_arp_rx_source_source_payload_reply <= 1'd0;
-    udpcore_liteetharprx_next_state <= 2'd0;
     core_arp_rx_source_source_payload_request <= 1'd0;
     core_arp_rx_source_source_valid <= 1'd0;
-    udpcore_liteetharprx_next_state <= udpcore_liteetharprx_state;
-    case (udpcore_liteetharprx_state)
+    liteetharprx_next_state <= 2'd0;
+    liteetharprx_next_state <= liteetharprx_state;
+    case (liteetharprx_state)
         1'd1: begin
             if (core_arp_rx_valid) begin
                 core_arp_rx_source_source_valid <= 1'd1;
                 core_arp_rx_source_source_payload_reply <= core_arp_rx_reply;
                 core_arp_rx_source_source_payload_request <= core_arp_rx_request;
             end
-            udpcore_liteetharprx_next_state <= 2'd2;
+            liteetharprx_next_state <= 2'd2;
         end
         2'd2: begin
             core_arp_rx_depacketizer_source_ready <= 1'd1;
             if ((core_arp_rx_depacketizer_source_valid & core_arp_rx_depacketizer_source_last)) begin
-                udpcore_liteetharprx_next_state <= 1'd0;
+                liteetharprx_next_state <= 1'd0;
             end
         end
         default: begin
             core_arp_rx_depacketizer_source_ready <= 1'd1;
             if (core_arp_rx_depacketizer_source_valid) begin
                 core_arp_rx_depacketizer_source_ready <= 1'd0;
-                udpcore_liteetharprx_next_state <= 1'd1;
+                liteetharprx_next_state <= 1'd1;
             end
         end
     endcase
 end
-assign core_arp_table_request_timer_wait = (core_arp_table_request_pending & (~core_arp_table_request_counter_ce));
-assign core_arp_table_cached_timer_wait = (~core_arp_table_update);
-assign core_arp_table_response_payload_mac_address = core_arp_table_cached_mac_address;
+assign core_arp_table_request_timer_wait = (core_arp_table_request_pending & (~core_arp_table_request_timer_done));
 assign core_arp_table_request_timer_done = (core_arp_table_request_timer_count == 1'd0);
-assign core_arp_table_cached_timer_done = (core_arp_table_cached_timer_count == 1'd0);
 always @(*) begin
-    core_arp_table_request_ip_address_reset <= 1'd0;
-    core_arp_table_request_ready <= 1'd0;
-    core_arp_table_request_ip_address_update <= 1'd0;
-    core_arp_table_request_pending_clr <= 1'd0;
-    core_arp_table_response_valid <= 1'd0;
-    core_arp_table_request_pending_set <= 1'd0;
-    core_arp_table_source_valid <= 1'd0;
-    core_arp_table_request_counter_reset <= 1'd0;
-    udpcore_liteetharptable_next_state <= 3'd0;
-    core_arp_table_request_counter_ce <= 1'd0;
-    core_arp_table_response_payload_failed <= 1'd0;
-    core_arp_table_source_payload_reply <= 1'd0;
-    core_arp_table_source_payload_request <= 1'd0;
-    core_arp_table_update <= 1'd0;
+    core_arp_table_cache_mem_wr_port_dat_w <= 81'd0;
+    core_arp_table_cache_mem_wr_port_dat_w[80] <= core_arp_table_cache_mem_wr_port_valid;
+    core_arp_table_cache_mem_wr_port_dat_w[31:0] <= core_arp_table_cache_mem_wr_port_ip_address;
+    core_arp_table_cache_mem_wr_port_dat_w[79:32] <= core_arp_table_cache_mem_wr_port_mac_address;
+end
+assign core_arp_table_cache_mem_rd_port_valid = core_arp_table_cache_mem_rd_port_dat_r[80];
+assign core_arp_table_cache_mem_rd_port_ip_address = core_arp_table_cache_mem_rd_port_dat_r[31:0];
+assign core_arp_table_cache_mem_rd_port_mac_address = core_arp_table_cache_mem_rd_port_dat_r[79:32];
+assign core_arp_table_cache_done = (core_arp_table_cache_count == 1'd0);
+always @(*) begin
+    core_arp_table_cache_error_liteetharp_liteetharpcache_next_value2 <= 1'd0;
+    core_arp_table_cache_error_liteetharp_liteetharpcache_next_value_ce2 <= 1'd0;
+    core_arp_table_cache_mem_rd_port_adr <= 1'd0;
+    core_arp_table_cache_mem_wr_port_adr <= 1'd0;
+    core_arp_table_cache_mem_wr_port_ip_address <= 32'd0;
+    core_arp_table_cache_mem_wr_port_mac_address <= 48'd0;
+    core_arp_table_cache_mem_wr_port_valid <= 1'd0;
+    core_arp_table_cache_mem_wr_port_we <= 1'd0;
+    core_arp_table_cache_request_ready <= 1'd0;
+    core_arp_table_cache_response_payload_error <= 1'd0;
+    core_arp_table_cache_response_payload_mac_address <= 48'd0;
+    core_arp_table_cache_response_valid <= 1'd0;
+    core_arp_table_cache_search_count_liteetharp_liteetharpcache_next_value1 <= 1'd0;
+    core_arp_table_cache_search_count_liteetharp_liteetharpcache_next_value_ce1 <= 1'd0;
+    core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value0 <= 1'd0;
+    core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value_ce0 <= 1'd0;
+    core_arp_table_cache_update_ready <= 1'd0;
+    core_arp_table_cache_wait <= 1'd0;
+    liteetharpcache_next_state <= 3'd0;
+    liteetharpcache_next_state <= liteetharpcache_state;
+    case (liteetharpcache_state)
+        1'd1: begin
+            if ((core_arp_table_cache_enable & core_arp_table_cache_update_valid)) begin
+                liteetharpcache_next_state <= 2'd2;
+            end
+            if ((core_arp_table_cache_enable & core_arp_table_cache_request_valid)) begin
+                core_arp_table_cache_search_count_liteetharp_liteetharpcache_next_value1 <= 1'd0;
+                core_arp_table_cache_search_count_liteetharp_liteetharpcache_next_value_ce1 <= 1'd1;
+                liteetharpcache_next_state <= 2'd3;
+            end
+            core_arp_table_cache_wait <= core_arp_table_cache_clear_enable;
+            if (core_arp_table_cache_done) begin
+                core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value0 <= 1'd0;
+                core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value_ce0 <= 1'd1;
+                liteetharpcache_next_state <= 1'd0;
+            end
+        end
+        2'd2: begin
+            core_arp_table_cache_mem_wr_port_we <= 1'd1;
+            core_arp_table_cache_mem_wr_port_adr <= core_arp_table_cache_update_count;
+            core_arp_table_cache_mem_wr_port_valid <= 1'd1;
+            core_arp_table_cache_mem_wr_port_ip_address <= core_arp_table_cache_update_payload_ip_address;
+            core_arp_table_cache_mem_wr_port_mac_address <= core_arp_table_cache_update_payload_mac_address;
+            core_arp_table_cache_update_ready <= 1'd1;
+            if ((core_arp_table_cache_update_count == 1'd1)) begin
+                core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value0 <= 1'd0;
+                core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value_ce0 <= 1'd1;
+            end else begin
+                core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value0 <= (core_arp_table_cache_update_count + 1'd1);
+                core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value_ce0 <= 1'd1;
+            end
+            liteetharpcache_next_state <= 1'd1;
+        end
+        2'd3: begin
+            core_arp_table_cache_mem_rd_port_adr <= core_arp_table_cache_search_count;
+            if ((core_arp_table_cache_mem_rd_port_valid & (core_arp_table_cache_mem_rd_port_ip_address == core_arp_table_cache_request_payload_ip_address))) begin
+                core_arp_table_cache_error_liteetharp_liteetharpcache_next_value2 <= 1'd0;
+                core_arp_table_cache_error_liteetharp_liteetharpcache_next_value_ce2 <= 1'd1;
+                liteetharpcache_next_state <= 3'd4;
+            end else begin
+                if ((core_arp_table_cache_search_count == 1'd1)) begin
+                    core_arp_table_cache_error_liteetharp_liteetharpcache_next_value2 <= 1'd1;
+                    core_arp_table_cache_error_liteetharp_liteetharpcache_next_value_ce2 <= 1'd1;
+                    liteetharpcache_next_state <= 3'd4;
+                end else begin
+                    core_arp_table_cache_search_count_liteetharp_liteetharpcache_next_value1 <= (core_arp_table_cache_search_count + 1'd1);
+                    core_arp_table_cache_search_count_liteetharp_liteetharpcache_next_value_ce1 <= 1'd1;
+                end
+            end
+        end
+        3'd4: begin
+            core_arp_table_cache_request_ready <= 1'd1;
+            core_arp_table_cache_response_valid <= 1'd1;
+            core_arp_table_cache_response_payload_error <= core_arp_table_cache_error;
+            core_arp_table_cache_response_payload_mac_address <= core_arp_table_cache_mem_rd_port_mac_address;
+            liteetharpcache_next_state <= 1'd1;
+        end
+        default: begin
+            core_arp_table_cache_mem_wr_port_we <= 1'd1;
+            core_arp_table_cache_mem_wr_port_adr <= core_arp_table_cache_update_count;
+            core_arp_table_cache_mem_wr_port_valid <= 1'd0;
+            core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value0 <= (core_arp_table_cache_update_count + 1'd1);
+            core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value_ce0 <= 1'd1;
+            if ((core_arp_table_cache_update_count == 1'd1)) begin
+                core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value0 <= 1'd0;
+                core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value_ce0 <= 1'd1;
+                liteetharpcache_next_state <= 1'd1;
+            end
+        end
+    endcase
+end
+always @(*) begin
+    core_arp_table_cache_request_payload_ip_address <= 32'd0;
+    core_arp_table_cache_request_valid <= 1'd0;
+    core_arp_table_cache_update_payload_ip_address <= 32'd0;
+    core_arp_table_cache_update_payload_mac_address <= 48'd0;
+    core_arp_table_cache_update_valid <= 1'd0;
+    core_arp_table_request_counter_liteetharp_fsm_next_value3 <= 3'd0;
+    core_arp_table_request_counter_liteetharp_fsm_next_value_ce3 <= 1'd0;
+    core_arp_table_request_ip_address_liteetharp_fsm_next_value4 <= 32'd0;
+    core_arp_table_request_ip_address_liteetharp_fsm_next_value_ce4 <= 1'd0;
+    core_arp_table_request_pending_liteetharp_fsm_next_value0 <= 1'd0;
+    core_arp_table_request_pending_liteetharp_fsm_next_value_ce0 <= 1'd0;
+    core_arp_table_request_request_ready <= 1'd0;
+    core_arp_table_response_response_payload_failed_liteetharp_fsm_next_value2 <= 1'd0;
+    core_arp_table_response_response_payload_failed_liteetharp_fsm_next_value_ce2 <= 1'd0;
+    core_arp_table_response_response_payload_mac_address_liteetharp_fsm_next_value1 <= 48'd0;
+    core_arp_table_response_response_payload_mac_address_liteetharp_fsm_next_value_ce1 <= 1'd0;
+    core_arp_table_response_response_valid <= 1'd0;
     core_arp_table_source_payload_ip_address <= 32'd0;
     core_arp_table_source_payload_mac_address <= 48'd0;
-    if ((core_arp_table_request_counter == 3'd7)) begin
-        core_arp_table_response_payload_failed <= 1'd1;
-        core_arp_table_request_counter_reset <= 1'd1;
-        core_arp_table_request_pending_clr <= 1'd1;
-    end
-    udpcore_liteetharptable_next_state <= udpcore_liteetharptable_state;
-    case (udpcore_liteetharptable_state)
+    core_arp_table_source_payload_reply <= 1'd0;
+    core_arp_table_source_payload_request <= 1'd0;
+    core_arp_table_source_valid <= 1'd0;
+    fsm_next_state <= 3'd0;
+    fsm_next_state <= fsm_state;
+    case (fsm_state)
         1'd1: begin
             core_arp_table_source_valid <= 1'd1;
             core_arp_table_source_payload_reply <= 1'd1;
             core_arp_table_source_payload_ip_address <= core_arp_table_sink_payload_ip_address;
             core_arp_table_source_payload_mac_address <= core_arp_table_sink_payload_mac_address;
             if (core_arp_table_source_ready) begin
-                udpcore_liteetharptable_next_state <= 1'd0;
+                fsm_next_state <= 1'd0;
             end
         end
         2'd2: begin
-            core_arp_table_request_pending_clr <= 1'd1;
-            core_arp_table_update <= 1'd1;
-            udpcore_liteetharptable_next_state <= 2'd3;
-        end
-        2'd3: begin
-            if (core_arp_table_cached_valid) begin
-                if ((core_arp_table_request_ip_address == core_arp_table_cached_ip_address)) begin
-                    core_arp_table_request_ip_address_reset <= 1'd1;
-                    udpcore_liteetharptable_next_state <= 3'd5;
-                end else begin
-                    if ((core_arp_table_request_payload_ip_address == core_arp_table_cached_ip_address)) begin
-                        core_arp_table_request_ready <= core_arp_table_request_valid;
-                        udpcore_liteetharptable_next_state <= 3'd5;
-                    end else begin
-                        core_arp_table_request_ip_address_update <= core_arp_table_request_valid;
-                        udpcore_liteetharptable_next_state <= 3'd4;
-                    end
+            if ((core_arp_table_request_pending & (core_arp_table_request_ip_address == core_arp_table_sink_payload_ip_address))) begin
+                core_arp_table_cache_update_valid <= 1'd1;
+                core_arp_table_cache_update_payload_ip_address <= core_arp_table_sink_payload_ip_address;
+                core_arp_table_cache_update_payload_mac_address <= core_arp_table_sink_payload_mac_address;
+                if (core_arp_table_cache_update_ready) begin
+                    core_arp_table_request_pending_liteetharp_fsm_next_value0 <= 1'd0;
+                    core_arp_table_request_pending_liteetharp_fsm_next_value_ce0 <= 1'd1;
+                    core_arp_table_response_response_payload_mac_address_liteetharp_fsm_next_value1 <= core_arp_table_sink_payload_mac_address;
+                    core_arp_table_response_response_payload_mac_address_liteetharp_fsm_next_value_ce1 <= 1'd1;
+                    fsm_next_state <= 3'd6;
                 end
             end else begin
-                core_arp_table_request_ip_address_update <= core_arp_table_request_valid;
-                udpcore_liteetharptable_next_state <= 3'd4;
+                fsm_next_state <= 1'd0;
+            end
+        end
+        2'd3: begin
+            if ((core_arp_table_request_counter == 3'd7)) begin
+                core_arp_table_response_response_payload_failed_liteetharp_fsm_next_value2 <= 1'd1;
+                core_arp_table_response_response_payload_failed_liteetharp_fsm_next_value_ce2 <= 1'd1;
+                core_arp_table_request_counter_liteetharp_fsm_next_value3 <= 1'd0;
+                core_arp_table_request_counter_liteetharp_fsm_next_value_ce3 <= 1'd1;
+                core_arp_table_request_pending_liteetharp_fsm_next_value0 <= 1'd0;
+                core_arp_table_request_pending_liteetharp_fsm_next_value_ce0 <= 1'd1;
+                fsm_next_state <= 3'd6;
+            end else begin
+                fsm_next_state <= 3'd5;
             end
         end
         3'd4: begin
+            core_arp_table_cache_request_valid <= 1'd1;
+            core_arp_table_cache_request_payload_ip_address <= core_arp_table_request_request_payload_ip_address;
+            if (core_arp_table_cache_response_valid) begin
+                core_arp_table_request_request_ready <= 1'd1;
+                if (core_arp_table_cache_response_payload_error) begin
+                    core_arp_table_request_counter_liteetharp_fsm_next_value3 <= 1'd0;
+                    core_arp_table_request_counter_liteetharp_fsm_next_value_ce3 <= 1'd1;
+                    core_arp_table_request_pending_liteetharp_fsm_next_value0 <= 1'd1;
+                    core_arp_table_request_pending_liteetharp_fsm_next_value_ce0 <= 1'd1;
+                    core_arp_table_request_ip_address_liteetharp_fsm_next_value4 <= core_arp_table_request_request_payload_ip_address;
+                    core_arp_table_request_ip_address_liteetharp_fsm_next_value_ce4 <= 1'd1;
+                    fsm_next_state <= 3'd5;
+                end else begin
+                    core_arp_table_response_response_payload_mac_address_liteetharp_fsm_next_value1 <= core_arp_table_cache_response_payload_mac_address;
+                    core_arp_table_response_response_payload_mac_address_liteetharp_fsm_next_value_ce1 <= 1'd1;
+                    fsm_next_state <= 3'd6;
+                end
+            end
+        end
+        3'd5: begin
             core_arp_table_source_valid <= 1'd1;
             core_arp_table_source_payload_request <= 1'd1;
             core_arp_table_source_payload_ip_address <= core_arp_table_request_ip_address;
             if (core_arp_table_source_ready) begin
-                core_arp_table_request_counter_reset <= core_arp_table_request_valid;
-                core_arp_table_request_counter_ce <= 1'd1;
-                core_arp_table_request_pending_set <= 1'd1;
-                core_arp_table_request_ready <= 1'd1;
-                udpcore_liteetharptable_next_state <= 1'd0;
+                core_arp_table_request_counter_liteetharp_fsm_next_value3 <= (core_arp_table_request_counter + 1'd1);
+                core_arp_table_request_counter_liteetharp_fsm_next_value_ce3 <= 1'd1;
+                fsm_next_state <= 1'd0;
             end
         end
-        3'd5: begin
-            core_arp_table_response_valid <= 1'd1;
-            if (core_arp_table_response_ready) begin
-                udpcore_liteetharptable_next_state <= 1'd0;
+        3'd6: begin
+            core_arp_table_response_response_valid <= 1'd1;
+            if (core_arp_table_response_response_ready) begin
+                core_arp_table_response_response_payload_failed_liteetharp_fsm_next_value2 <= 1'd0;
+                core_arp_table_response_response_payload_failed_liteetharp_fsm_next_value_ce2 <= 1'd1;
+                fsm_next_state <= 1'd0;
             end
         end
         default: begin
             if ((core_arp_table_sink_valid & core_arp_table_sink_payload_request)) begin
-                udpcore_liteetharptable_next_state <= 1'd1;
+                fsm_next_state <= 1'd1;
             end else begin
-                if (((core_arp_table_sink_valid & core_arp_table_sink_payload_reply) & core_arp_table_request_pending)) begin
-                    udpcore_liteetharptable_next_state <= 2'd2;
+                if ((core_arp_table_sink_valid & core_arp_table_sink_payload_reply)) begin
+                    fsm_next_state <= 2'd2;
                 end else begin
-                    if ((core_arp_table_request_counter == 3'd7)) begin
-                        udpcore_liteetharptable_next_state <= 3'd5;
+                    if (core_arp_table_request_request_valid) begin
+                        fsm_next_state <= 3'd4;
                     end else begin
-                        if ((core_arp_table_request_valid | (core_arp_table_request_pending & core_arp_table_request_timer_done))) begin
-                            udpcore_liteetharptable_next_state <= 2'd3;
+                        if (core_arp_table_request_timer_done) begin
+                            fsm_next_state <= 2'd3;
                         end
                     end
                 end
@@ -3952,16 +4236,16 @@ always @(*) begin
         end
     endcase
 end
-assign core_ip_mac_port_sink_valid = core_ip_tx_source_source_valid;
-assign core_ip_tx_source_source_ready = core_ip_mac_port_sink_ready;
-assign core_ip_mac_port_sink_first = core_ip_tx_source_source_first;
-assign core_ip_mac_port_sink_last = core_ip_tx_source_source_last;
+assign core_ip_mac_port_sink_valid = core_ip_tx_source_source_valid0;
+assign core_ip_tx_source_source_ready0 = core_ip_mac_port_sink_ready;
+assign core_ip_mac_port_sink_first = core_ip_tx_source_source_first0;
+assign core_ip_mac_port_sink_last = core_ip_tx_source_source_last0;
 assign core_ip_mac_port_sink_payload_ethernet_type = core_ip_tx_source_source_payload_ethernet_type;
 assign core_ip_mac_port_sink_payload_sender_mac = core_ip_tx_source_source_payload_sender_mac;
 assign core_ip_mac_port_sink_payload_target_mac = core_ip_tx_source_source_payload_target_mac;
-assign core_ip_mac_port_sink_payload_data = core_ip_tx_source_source_payload_data;
-assign core_ip_mac_port_sink_payload_last_be = core_ip_tx_source_source_payload_last_be;
-assign core_ip_mac_port_sink_payload_error = core_ip_tx_source_source_payload_error;
+assign core_ip_mac_port_sink_payload_data = core_ip_tx_source_source_payload_data0;
+assign core_ip_mac_port_sink_payload_last_be = core_ip_tx_source_source_payload_last_be0;
+assign core_ip_mac_port_sink_payload_error = core_ip_tx_source_source_payload_error0;
 assign core_ip_rx_sink_sink_valid = core_ip_mac_port_source_valid;
 assign core_ip_mac_port_source_ready = core_ip_rx_sink_sink_ready;
 assign core_ip_rx_sink_sink_first = core_ip_mac_port_source_first;
@@ -3972,16 +4256,16 @@ assign core_ip_rx_sink_sink_payload_target_mac = core_ip_mac_port_source_payload
 assign core_ip_rx_sink_sink_payload_data = core_ip_mac_port_source_payload_data;
 assign core_ip_rx_sink_sink_payload_last_be = core_ip_mac_port_source_payload_last_be;
 assign core_ip_rx_sink_sink_payload_error = core_ip_mac_port_source_payload_error;
-assign core_ip_tx_sink_sink_valid = core_ip_crossbar_source_valid;
-assign core_ip_crossbar_source_ready = core_ip_tx_sink_sink_ready;
-assign core_ip_tx_sink_sink_first = core_ip_crossbar_source_first;
-assign core_ip_tx_sink_sink_last = core_ip_crossbar_source_last;
-assign core_ip_tx_sink_sink_payload_data = core_ip_crossbar_source_payload_data;
-assign core_ip_tx_sink_sink_payload_last_be = core_ip_crossbar_source_payload_last_be;
-assign core_ip_tx_sink_sink_payload_error = core_ip_crossbar_source_payload_error;
-assign core_ip_tx_sink_sink_param_length = core_ip_crossbar_source_param_length;
-assign core_ip_tx_sink_sink_param_protocol = core_ip_crossbar_source_param_protocol;
-assign core_ip_tx_sink_sink_param_ip_address = core_ip_crossbar_source_param_ip_address;
+assign core_ip_tx_sink_sink_valid0 = core_ip_crossbar_source_valid;
+assign core_ip_crossbar_source_ready = core_ip_tx_sink_sink_ready0;
+assign core_ip_tx_sink_sink_first0 = core_ip_crossbar_source_first;
+assign core_ip_tx_sink_sink_last0 = core_ip_crossbar_source_last;
+assign core_ip_tx_sink_sink_payload_data0 = core_ip_crossbar_source_payload_data;
+assign core_ip_tx_sink_sink_payload_last_be0 = core_ip_crossbar_source_payload_last_be;
+assign core_ip_tx_sink_sink_payload_error0 = core_ip_crossbar_source_payload_error;
+assign core_ip_tx_sink_sink_param_length0 = core_ip_crossbar_source_param_length;
+assign core_ip_tx_sink_sink_param_protocol0 = core_ip_crossbar_source_param_protocol;
+assign core_ip_tx_sink_sink_param_ip_address0 = core_ip_crossbar_source_param_ip_address;
 assign core_ip_crossbar_sink_valid = core_ip_rx_source_source_valid;
 assign core_ip_rx_source_source_ready = core_ip_crossbar_sink_ready;
 assign core_ip_crossbar_sink_first = core_ip_rx_source_source_first;
@@ -3992,16 +4276,26 @@ assign core_ip_crossbar_sink_payload_error = core_ip_rx_source_source_payload_er
 assign core_ip_crossbar_sink_param_length = core_ip_rx_source_source_param_length;
 assign core_ip_crossbar_sink_param_protocol = core_ip_rx_source_source_param_protocol;
 assign core_ip_crossbar_sink_param_ip_address = core_ip_rx_source_source_param_ip_address;
-assign core_ip_tx_ce = core_ip_tx_sink_sink_valid;
-assign core_ip_tx_reset = ((core_ip_tx_source_source_valid & core_ip_tx_source_source_last) & core_ip_tx_source_source_ready);
-assign core_ip_tx_packetizer_sink_last = core_ip_tx_sink_sink_last;
-assign core_ip_tx_packetizer_sink_payload_data = core_ip_tx_sink_sink_payload_data;
-assign core_ip_tx_packetizer_sink_payload_last_be = core_ip_tx_sink_sink_payload_last_be;
-assign core_ip_tx_packetizer_sink_param_protocol = core_ip_tx_sink_sink_param_protocol;
-assign core_ip_tx_packetizer_sink_valid = (core_ip_tx_sink_sink_valid & core_ip_tx_liteethipv4checksum_done);
-assign core_ip_tx_sink_sink_ready = (core_ip_tx_packetizer_sink_ready & core_ip_tx_liteethipv4checksum_done);
-assign core_ip_tx_packetizer_sink_param_target_ip = core_ip_tx_sink_sink_param_ip_address;
-assign core_ip_tx_packetizer_sink_param_total_length = (5'd20 + core_ip_tx_sink_sink_param_length);
+assign core_ip_tx_sink_sink_valid1 = core_ip_tx_sink_sink_valid0;
+assign core_ip_tx_sink_sink_ready0 = core_ip_tx_sink_sink_ready1;
+assign core_ip_tx_sink_sink_first1 = core_ip_tx_sink_sink_first0;
+assign core_ip_tx_sink_sink_last1 = core_ip_tx_sink_sink_last0;
+assign core_ip_tx_sink_sink_payload_data1 = core_ip_tx_sink_sink_payload_data0;
+assign core_ip_tx_sink_sink_payload_last_be1 = core_ip_tx_sink_sink_payload_last_be0;
+assign core_ip_tx_sink_sink_payload_error1 = core_ip_tx_sink_sink_payload_error0;
+assign core_ip_tx_sink_sink_param_length1 = core_ip_tx_sink_sink_param_length0;
+assign core_ip_tx_sink_sink_param_protocol1 = core_ip_tx_sink_sink_param_protocol0;
+assign core_ip_tx_sink_sink_param_ip_address1 = core_ip_tx_sink_sink_param_ip_address0;
+assign core_ip_tx_ce = core_ip_tx_source_source_valid1;
+assign core_ip_tx_reset = ((core_ip_tx_source_source_valid0 & core_ip_tx_source_source_last0) & core_ip_tx_source_source_ready0);
+assign core_ip_tx_packetizer_sink_last = core_ip_tx_source_source_last1;
+assign core_ip_tx_packetizer_sink_payload_data = core_ip_tx_source_source_payload_data1;
+assign core_ip_tx_packetizer_sink_payload_last_be = core_ip_tx_source_source_payload_last_be1;
+assign core_ip_tx_packetizer_sink_param_protocol = core_ip_tx_source_source_param_protocol;
+assign core_ip_tx_packetizer_sink_valid = (core_ip_tx_source_source_valid1 & core_ip_tx_liteethipv4checksum_done);
+assign core_ip_tx_source_source_ready1 = (core_ip_tx_packetizer_sink_ready & core_ip_tx_liteethipv4checksum_done);
+assign core_ip_tx_packetizer_sink_param_target_ip = core_ip_tx_source_source_param_ip_address;
+assign core_ip_tx_packetizer_sink_param_total_length = (5'd20 + core_ip_tx_source_source_param_length);
 assign core_ip_tx_packetizer_sink_param_version = 3'd4;
 assign core_ip_tx_packetizer_sink_param_ihl = 3'd5;
 assign core_ip_tx_packetizer_sink_param_identification = 1'd0;
@@ -4009,7 +4303,28 @@ assign core_ip_tx_packetizer_sink_param_ttl = 8'd128;
 assign core_ip_tx_packetizer_sink_param_sender_ip = 32'd3232281138;
 assign core_ip_tx_liteethipv4checksum_header = core_ip_tx_packetizer_header;
 assign core_ip_tx_packetizer_sink_param_checksum = core_ip_tx_liteethipv4checksum_value;
-assign core_arp_table_request_payload_ip_address = core_ip_tx_sink_sink_param_ip_address;
+assign core_arp_table_request_request_payload_ip_address = core_ip_tx_source_source_param_ip_address;
+assign core_ip_tx_pipe_valid_sink_ready = ((~core_ip_tx_pipe_valid_source_valid) | core_ip_tx_pipe_valid_source_ready);
+assign core_ip_tx_pipe_valid_sink_valid = core_ip_tx_sink_sink_valid1;
+assign core_ip_tx_sink_sink_ready1 = core_ip_tx_pipe_valid_sink_ready;
+assign core_ip_tx_pipe_valid_sink_first = core_ip_tx_sink_sink_first1;
+assign core_ip_tx_pipe_valid_sink_last = core_ip_tx_sink_sink_last1;
+assign core_ip_tx_pipe_valid_sink_payload_data = core_ip_tx_sink_sink_payload_data1;
+assign core_ip_tx_pipe_valid_sink_payload_last_be = core_ip_tx_sink_sink_payload_last_be1;
+assign core_ip_tx_pipe_valid_sink_payload_error = core_ip_tx_sink_sink_payload_error1;
+assign core_ip_tx_pipe_valid_sink_param_length = core_ip_tx_sink_sink_param_length1;
+assign core_ip_tx_pipe_valid_sink_param_protocol = core_ip_tx_sink_sink_param_protocol1;
+assign core_ip_tx_pipe_valid_sink_param_ip_address = core_ip_tx_sink_sink_param_ip_address1;
+assign core_ip_tx_source_source_valid1 = core_ip_tx_pipe_valid_source_valid;
+assign core_ip_tx_pipe_valid_source_ready = core_ip_tx_source_source_ready1;
+assign core_ip_tx_source_source_first1 = core_ip_tx_pipe_valid_source_first;
+assign core_ip_tx_source_source_last1 = core_ip_tx_pipe_valid_source_last;
+assign core_ip_tx_source_source_payload_data1 = core_ip_tx_pipe_valid_source_payload_data;
+assign core_ip_tx_source_source_payload_last_be1 = core_ip_tx_pipe_valid_source_payload_last_be;
+assign core_ip_tx_source_source_payload_error1 = core_ip_tx_pipe_valid_source_payload_error;
+assign core_ip_tx_source_source_param_length = core_ip_tx_pipe_valid_source_param_length;
+assign core_ip_tx_source_source_param_protocol = core_ip_tx_pipe_valid_source_param_protocol;
+assign core_ip_tx_source_source_param_ip_address = core_ip_tx_pipe_valid_source_param_ip_address;
 assign core_ip_tx_liteethipv4checksum_s_next0 = (core_ip_tx_liteethipv4checksum_r + core_ip_tx_liteethipv4checksum_header[15:0]);
 assign core_ip_tx_liteethipv4checksum_s_next1 = (core_ip_tx_liteethipv4checksum_r_next0 + core_ip_tx_liteethipv4checksum_header[31:16]);
 assign core_ip_tx_liteethipv4checksum_s_next2 = (core_ip_tx_liteethipv4checksum_r_next1 + core_ip_tx_liteethipv4checksum_header[47:32]);
@@ -4026,13 +4341,13 @@ always @(*) begin
     core_ip_tx_packetizer_header <= 160'd0;
     core_ip_tx_packetizer_header[95:80] <= {core_ip_tx_packetizer_sink_param_checksum[7:0], core_ip_tx_packetizer_sink_param_checksum[15:8]};
     core_ip_tx_packetizer_header[47:32] <= {core_ip_tx_packetizer_sink_param_identification[7:0], core_ip_tx_packetizer_sink_param_identification[15:8]};
-    core_ip_tx_packetizer_header[3:0] <= {core_ip_tx_packetizer_sink_param_ihl[3:0]};
-    core_ip_tx_packetizer_header[79:72] <= {core_ip_tx_packetizer_sink_param_protocol[7:0]};
+    core_ip_tx_packetizer_header[3:0] <= {core_ip_tx_packetizer_sink_param_ihl};
+    core_ip_tx_packetizer_header[79:72] <= {core_ip_tx_packetizer_sink_param_protocol};
     core_ip_tx_packetizer_header[127:96] <= {core_ip_tx_packetizer_sink_param_sender_ip[7:0], core_ip_tx_packetizer_sink_param_sender_ip[15:8], core_ip_tx_packetizer_sink_param_sender_ip[23:16], core_ip_tx_packetizer_sink_param_sender_ip[31:24]};
     core_ip_tx_packetizer_header[159:128] <= {core_ip_tx_packetizer_sink_param_target_ip[7:0], core_ip_tx_packetizer_sink_param_target_ip[15:8], core_ip_tx_packetizer_sink_param_target_ip[23:16], core_ip_tx_packetizer_sink_param_target_ip[31:24]};
     core_ip_tx_packetizer_header[31:16] <= {core_ip_tx_packetizer_sink_param_total_length[7:0], core_ip_tx_packetizer_sink_param_total_length[15:8]};
-    core_ip_tx_packetizer_header[71:64] <= {core_ip_tx_packetizer_sink_param_ttl[7:0]};
-    core_ip_tx_packetizer_header[7:4] <= {core_ip_tx_packetizer_sink_param_version[3:0]};
+    core_ip_tx_packetizer_header[71:64] <= {core_ip_tx_packetizer_sink_param_ttl};
+    core_ip_tx_packetizer_header[7:4] <= {core_ip_tx_packetizer_sink_param_version};
 end
 assign core_ip_tx_packetizer_sink_last_be = core_ip_tx_packetizer_sink_last;
 assign core_ip_tx_packetizer_new_last_be = {core_ip_tx_packetizer_sink_last_be};
@@ -4047,28 +4362,28 @@ always @(*) begin
 end
 assign core_ip_tx_packetizer_source_payload_error = core_ip_tx_packetizer_sink_payload_error;
 always @(*) begin
+    core_ip_tx_packetizer_count_liteethip_fsm0_next_value0 <= 5'd0;
+    core_ip_tx_packetizer_count_liteethip_fsm0_next_value_ce0 <= 1'd0;
+    core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value0 <= 1'd0;
+    core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value_ce0 <= 1'd0;
+    core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value1 <= 1'd0;
     core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value_ce1 <= 1'd0;
-    core_ip_tx_packetizer_sr_load <= 1'd0;
+    core_ip_tx_packetizer_is_ongoing0 <= 1'd0;
+    core_ip_tx_packetizer_is_ongoing1 <= 1'd0;
     core_ip_tx_packetizer_is_ongoing2 <= 1'd0;
-    core_ip_tx_packetizer_sr_shift <= 1'd0;
     core_ip_tx_packetizer_sink_ready <= 1'd0;
     core_ip_tx_packetizer_source_last_a <= 1'd0;
     core_ip_tx_packetizer_source_last_b <= 1'd0;
     core_ip_tx_packetizer_source_last_s <= 1'd0;
-    udpcore_liteethip_liteethiptx_fsm1_next_state <= 1'd0;
-    core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value1 <= 1'd0;
-    core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value0 <= 1'd0;
-    core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value_ce0 <= 1'd0;
     core_ip_tx_packetizer_source_payload_data <= 8'd0;
-    core_ip_tx_packetizer_source_valid <= 1'd0;
-    udpcore_liteethip_liteethiptx_fsm0_next_state <= 2'd0;
-    core_ip_tx_packetizer_count_liteethip_fsm0_next_value0 <= 5'd0;
-    core_ip_tx_packetizer_count_liteethip_fsm0_next_value_ce0 <= 1'd0;
-    core_ip_tx_packetizer_is_ongoing0 <= 1'd0;
-    core_ip_tx_packetizer_is_ongoing1 <= 1'd0;
     core_ip_tx_packetizer_source_payload_last_be <= 1'd0;
-    udpcore_liteethip_liteethiptx_fsm0_next_state <= udpcore_liteethip_liteethiptx_fsm0_state;
-    case (udpcore_liteethip_liteethiptx_fsm0_state)
+    core_ip_tx_packetizer_source_valid <= 1'd0;
+    core_ip_tx_packetizer_sr_load <= 1'd0;
+    core_ip_tx_packetizer_sr_shift <= 1'd0;
+    liteethip_liteethiptx_fsm0_next_state <= 2'd0;
+    liteethip_liteethiptx_fsm1_next_state <= 1'd0;
+    liteethip_liteethiptx_fsm0_next_state <= liteethip_liteethiptx_fsm0_state;
+    case (liteethip_liteethiptx_fsm0_state)
         1'd1: begin
             core_ip_tx_packetizer_source_valid <= 1'd1;
             core_ip_tx_packetizer_source_last_a <= 1'd0;
@@ -4077,7 +4392,7 @@ always @(*) begin
                 core_ip_tx_packetizer_sr_shift <= 1'd1;
                 if ((core_ip_tx_packetizer_count == 5'd19)) begin
                     core_ip_tx_packetizer_sr_shift <= 1'd0;
-                    udpcore_liteethip_liteethiptx_fsm0_next_state <= 2'd2;
+                    liteethip_liteethiptx_fsm0_next_state <= 2'd2;
                     core_ip_tx_packetizer_count_liteethip_fsm0_next_value0 <= (core_ip_tx_packetizer_count + 1'd1);
                     core_ip_tx_packetizer_count_liteethip_fsm0_next_value_ce0 <= 1'd1;
                 end else begin
@@ -4093,7 +4408,7 @@ always @(*) begin
             if ((core_ip_tx_packetizer_source_valid & core_ip_tx_packetizer_source_ready)) begin
                 core_ip_tx_packetizer_sink_ready <= 1'd1;
                 if (core_ip_tx_packetizer_source_last) begin
-                    udpcore_liteethip_liteethiptx_fsm0_next_state <= 1'd0;
+                    liteethip_liteethiptx_fsm0_next_state <= 1'd0;
                 end
             end
             core_ip_tx_packetizer_is_ongoing0 <= 1'd1;
@@ -4115,24 +4430,24 @@ always @(*) begin
                     core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value1 <= 1'd1;
                     core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value_ce1 <= 1'd1;
                     if (1'd0) begin
-                        udpcore_liteethip_liteethiptx_fsm0_next_state <= 2'd2;
+                        liteethip_liteethiptx_fsm0_next_state <= 2'd2;
                     end else begin
-                        udpcore_liteethip_liteethiptx_fsm0_next_state <= 1'd1;
+                        liteethip_liteethiptx_fsm0_next_state <= 1'd1;
                     end
                 end
             end
             core_ip_tx_packetizer_is_ongoing2 <= 1'd1;
         end
     endcase
-    udpcore_liteethip_liteethiptx_fsm1_next_state <= udpcore_liteethip_liteethiptx_fsm1_state;
-    case (udpcore_liteethip_liteethiptx_fsm1_state)
+    liteethip_liteethiptx_fsm1_next_state <= liteethip_liteethiptx_fsm1_state;
+    case (liteethip_liteethiptx_fsm1_state)
         1'd1: begin
             core_ip_tx_packetizer_source_last_b <= 1'd1;
             core_ip_tx_packetizer_source_last_s <= 1'd1;
             core_ip_tx_packetizer_source_payload_last_be <= core_ip_tx_packetizer_delayed_last_be;
             core_ip_tx_packetizer_sink_ready <= 1'd0;
             if (core_ip_tx_packetizer_source_ready) begin
-                udpcore_liteethip_liteethiptx_fsm1_next_state <= 1'd0;
+                liteethip_liteethiptx_fsm1_next_state <= 1'd0;
             end
         end
         default: begin
@@ -4143,7 +4458,7 @@ always @(*) begin
                 if ((core_ip_tx_packetizer_source_ready & core_ip_tx_packetizer_source_valid)) begin
                     core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value0 <= core_ip_tx_packetizer_new_last_be;
                     core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value_ce0 <= 1'd1;
-                    udpcore_liteethip_liteethiptx_fsm1_next_state <= 1'd1;
+                    liteethip_liteethiptx_fsm1_next_state <= 1'd1;
                 end
             end else begin
                 if (core_ip_tx_packetizer_in_data_copy) begin
@@ -4163,80 +4478,80 @@ always @(*) begin
     endcase
 end
 always @(*) begin
-    core_arp_table_request_valid <= 1'd0;
-    core_arp_table_response_ready <= 1'd0;
-    core_ip_tx_source_source_valid <= 1'd0;
-    core_ip_tx_source_source_first <= 1'd0;
-    udpcore_liteethip_liteethiptx_next_state <= 3'd0;
-    core_ip_tx_source_source_last <= 1'd0;
-    core_ip_tx_source_source_payload_ethernet_type <= 16'd0;
-    core_ip_tx_target_mac_liteethip_next_value <= 48'd0;
+    core_arp_table_request_request_valid <= 1'd0;
+    core_arp_table_response_response_ready <= 1'd0;
     core_ip_tx_packetizer_source_ready <= 1'd0;
-    core_ip_tx_target_mac_liteethip_next_value_ce <= 1'd0;
+    core_ip_tx_source_source_first0 <= 1'd0;
+    core_ip_tx_source_source_last0 <= 1'd0;
+    core_ip_tx_source_source_payload_data0 <= 8'd0;
+    core_ip_tx_source_source_payload_error0 <= 1'd0;
+    core_ip_tx_source_source_payload_ethernet_type <= 16'd0;
+    core_ip_tx_source_source_payload_last_be0 <= 1'd0;
     core_ip_tx_source_source_payload_sender_mac <= 48'd0;
     core_ip_tx_source_source_payload_target_mac <= 48'd0;
-    core_ip_tx_source_source_payload_data <= 8'd0;
-    core_ip_tx_source_source_payload_last_be <= 1'd0;
-    core_ip_tx_source_source_payload_error <= 1'd0;
+    core_ip_tx_source_source_valid0 <= 1'd0;
+    core_ip_tx_target_mac_liteethip_next_value <= 48'd0;
+    core_ip_tx_target_mac_liteethip_next_value_ce <= 1'd0;
     core_ip_tx_target_unreachable <= 1'd0;
-    udpcore_liteethip_liteethiptx_next_state <= udpcore_liteethip_liteethiptx_state;
-    case (udpcore_liteethip_liteethiptx_state)
+    liteethip_liteethiptx_next_state <= 3'd0;
+    liteethip_liteethiptx_next_state <= liteethip_liteethiptx_state;
+    case (liteethip_liteethiptx_state)
         1'd1: begin
-            core_arp_table_request_valid <= 1'd1;
-            if ((core_arp_table_request_valid & core_arp_table_request_ready)) begin
-                udpcore_liteethip_liteethiptx_next_state <= 2'd2;
+            core_arp_table_request_request_valid <= 1'd1;
+            if ((core_arp_table_request_request_valid & core_arp_table_request_request_ready)) begin
+                liteethip_liteethiptx_next_state <= 2'd2;
             end
         end
         2'd2: begin
-            if (core_arp_table_response_valid) begin
-                core_ip_tx_target_mac_liteethip_next_value <= core_arp_table_response_payload_mac_address;
+            if (core_arp_table_response_response_valid) begin
+                core_ip_tx_target_mac_liteethip_next_value <= core_arp_table_response_response_payload_mac_address;
                 core_ip_tx_target_mac_liteethip_next_value_ce <= 1'd1;
-                core_arp_table_response_ready <= 1'd1;
-                if (core_arp_table_response_payload_failed) begin
+                core_arp_table_response_response_ready <= 1'd1;
+                if (core_arp_table_response_response_payload_failed) begin
                     core_ip_tx_target_unreachable <= 1'd1;
-                    udpcore_liteethip_liteethiptx_next_state <= 3'd4;
+                    liteethip_liteethiptx_next_state <= 3'd4;
                 end else begin
-                    udpcore_liteethip_liteethiptx_next_state <= 2'd3;
+                    liteethip_liteethiptx_next_state <= 2'd3;
                 end
             end
         end
         2'd3: begin
-            core_ip_tx_source_source_valid <= core_ip_tx_packetizer_source_valid;
-            core_ip_tx_packetizer_source_ready <= core_ip_tx_source_source_ready;
-            core_ip_tx_source_source_first <= core_ip_tx_packetizer_source_first;
-            core_ip_tx_source_source_last <= core_ip_tx_packetizer_source_last;
+            core_ip_tx_source_source_valid0 <= core_ip_tx_packetizer_source_valid;
+            core_ip_tx_packetizer_source_ready <= core_ip_tx_source_source_ready0;
+            core_ip_tx_source_source_first0 <= core_ip_tx_packetizer_source_first;
+            core_ip_tx_source_source_last0 <= core_ip_tx_packetizer_source_last;
             core_ip_tx_source_source_payload_ethernet_type <= core_ip_tx_packetizer_source_payload_ethernet_type;
             core_ip_tx_source_source_payload_sender_mac <= core_ip_tx_packetizer_source_payload_sender_mac;
             core_ip_tx_source_source_payload_target_mac <= core_ip_tx_packetizer_source_payload_target_mac;
-            core_ip_tx_source_source_payload_data <= core_ip_tx_packetizer_source_payload_data;
-            core_ip_tx_source_source_payload_last_be <= core_ip_tx_packetizer_source_payload_last_be;
-            core_ip_tx_source_source_payload_error <= core_ip_tx_packetizer_source_payload_error;
+            core_ip_tx_source_source_payload_data0 <= core_ip_tx_packetizer_source_payload_data;
+            core_ip_tx_source_source_payload_last_be0 <= core_ip_tx_packetizer_source_payload_last_be;
+            core_ip_tx_source_source_payload_error0 <= core_ip_tx_packetizer_source_payload_error;
             core_ip_tx_source_source_payload_ethernet_type <= 12'd2048;
             core_ip_tx_source_source_payload_target_mac <= core_ip_tx_target_mac;
             core_ip_tx_source_source_payload_sender_mac <= 48'd186934156644303;
-            if (((core_ip_tx_source_source_valid & core_ip_tx_source_source_last) & core_ip_tx_source_source_ready)) begin
-                udpcore_liteethip_liteethiptx_next_state <= 1'd0;
+            if (((core_ip_tx_source_source_valid0 & core_ip_tx_source_source_last0) & core_ip_tx_source_source_ready0)) begin
+                liteethip_liteethiptx_next_state <= 1'd0;
             end
         end
         3'd4: begin
             core_ip_tx_packetizer_source_ready <= 1'd1;
             if (((core_ip_tx_packetizer_source_valid & core_ip_tx_packetizer_source_last) & core_ip_tx_packetizer_source_ready)) begin
-                udpcore_liteethip_liteethiptx_next_state <= 1'd0;
+                liteethip_liteethiptx_next_state <= 1'd0;
             end
         end
         default: begin
             if (core_ip_tx_packetizer_source_valid) begin
-                if ((core_ip_tx_sink_sink_param_ip_address[7:0] == 8'd255)) begin
+                if ((core_ip_tx_source_source_param_ip_address[7:0] == 8'd255)) begin
                     core_ip_tx_target_mac_liteethip_next_value <= 48'd281474976710655;
                     core_ip_tx_target_mac_liteethip_next_value_ce <= 1'd1;
-                    udpcore_liteethip_liteethiptx_next_state <= 2'd3;
+                    liteethip_liteethiptx_next_state <= 2'd3;
                 end else begin
-                    if ((core_ip_tx_sink_sink_param_ip_address[31:28] == 4'd14)) begin
-                        core_ip_tx_target_mac_liteethip_next_value <= {24'd65630, 1'd0, core_ip_tx_sink_sink_param_ip_address[22:0]};
+                    if ((core_ip_tx_source_source_param_ip_address[31:28] == 4'd14)) begin
+                        core_ip_tx_target_mac_liteethip_next_value <= {24'd65630, 1'd0, core_ip_tx_source_source_param_ip_address[22:0]};
                         core_ip_tx_target_mac_liteethip_next_value_ce <= 1'd1;
-                        udpcore_liteethip_liteethiptx_next_state <= 2'd3;
+                        liteethip_liteethiptx_next_state <= 2'd3;
                     end else begin
-                        udpcore_liteethip_liteethiptx_next_state <= 1'd1;
+                        liteethip_liteethiptx_next_state <= 1'd1;
                     end
                 end
             end
@@ -4264,15 +4579,15 @@ assign core_ip_rx_source_source_param_protocol = core_ip_rx_depacketizer_source_
 assign core_ip_rx_source_source_param_length = (core_ip_rx_depacketizer_source_param_total_length - 5'd20);
 assign core_ip_rx_source_source_param_ip_address = core_ip_rx_depacketizer_source_param_sender_ip;
 assign core_ip_rx_depacketizer_header = core_ip_rx_depacketizer_sr;
-assign core_ip_rx_depacketizer_source_param_checksum = {rhs_slice_proxy43[7:0], rhs_slice_proxy42[15:8]};
-assign core_ip_rx_depacketizer_source_param_identification = {rhs_slice_proxy45[7:0], rhs_slice_proxy44[15:8]};
-assign core_ip_rx_depacketizer_source_param_ihl = {rhs_slice_proxy46[3:0]};
-assign core_ip_rx_depacketizer_source_param_protocol = {rhs_slice_proxy47[7:0]};
-assign core_ip_rx_depacketizer_source_param_sender_ip = {rhs_slice_proxy51[7:0], rhs_slice_proxy50[15:8], rhs_slice_proxy49[23:16], rhs_slice_proxy48[31:24]};
-assign core_ip_rx_depacketizer_source_param_target_ip = {rhs_slice_proxy55[7:0], rhs_slice_proxy54[15:8], rhs_slice_proxy53[23:16], rhs_slice_proxy52[31:24]};
-assign core_ip_rx_depacketizer_source_param_total_length = {rhs_slice_proxy57[7:0], rhs_slice_proxy56[15:8]};
-assign core_ip_rx_depacketizer_source_param_ttl = {rhs_slice_proxy58[7:0]};
-assign core_ip_rx_depacketizer_source_param_version = {rhs_slice_proxy59[3:0]};
+assign core_ip_rx_depacketizer_source_param_checksum = {core_ip_rx_depacketizer_header[87:80], core_ip_rx_depacketizer_header[95:88]};
+assign core_ip_rx_depacketizer_source_param_identification = {core_ip_rx_depacketizer_header[39:32], core_ip_rx_depacketizer_header[47:40]};
+assign core_ip_rx_depacketizer_source_param_ihl = {core_ip_rx_depacketizer_header[3:0]};
+assign core_ip_rx_depacketizer_source_param_protocol = {core_ip_rx_depacketizer_header[79:72]};
+assign core_ip_rx_depacketizer_source_param_sender_ip = {core_ip_rx_depacketizer_header[103:96], core_ip_rx_depacketizer_header[111:104], core_ip_rx_depacketizer_header[119:112], core_ip_rx_depacketizer_header[127:120]};
+assign core_ip_rx_depacketizer_source_param_target_ip = {core_ip_rx_depacketizer_header[135:128], core_ip_rx_depacketizer_header[143:136], core_ip_rx_depacketizer_header[151:144], core_ip_rx_depacketizer_header[159:152]};
+assign core_ip_rx_depacketizer_source_param_total_length = {core_ip_rx_depacketizer_header[23:16], core_ip_rx_depacketizer_header[31:24]};
+assign core_ip_rx_depacketizer_source_param_ttl = {core_ip_rx_depacketizer_header[71:64]};
+assign core_ip_rx_depacketizer_source_param_version = {core_ip_rx_depacketizer_header[7:4]};
 assign core_ip_rx_depacketizer_source_payload_error = core_ip_rx_depacketizer_sink_payload_error;
 assign core_ip_rx_depacketizer_sink_last_be = core_ip_rx_depacketizer_sink_last;
 assign core_ip_rx_depacketizer_new_last_be = {core_ip_rx_depacketizer_sink_last_be};
@@ -4286,28 +4601,28 @@ always @(*) begin
     end
 end
 always @(*) begin
-    core_ip_rx_depacketizer_is_ongoing2 <= 1'd0;
-    core_ip_rx_depacketizer_is_ongoing3 <= 1'd0;
-    core_ip_rx_depacketizer_sr_shift <= 1'd0;
-    core_ip_rx_depacketizer_source_last_a <= 1'd0;
-    udpcore_liteethip_liteethiprx_fsm0_next_state <= 2'd0;
-    core_ip_rx_depacketizer_source_last_b <= 1'd0;
     core_ip_rx_depacketizer_count_liteethip_fsm0_next_value2 <= 5'd0;
-    core_ip_rx_depacketizer_source_last_s <= 1'd0;
     core_ip_rx_depacketizer_count_liteethip_fsm0_next_value_ce2 <= 1'd0;
-    core_ip_rx_depacketizer_sink_ready <= 1'd0;
-    core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value3 <= 1'd0;
-    core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value_ce3 <= 1'd0;
-    core_ip_rx_depacketizer_source_valid <= 1'd0;
-    udpcore_liteethip_liteethiprx_fsm1_next_state <= 1'd0;
-    core_ip_rx_depacketizer_source_payload_data <= 8'd0;
-    core_ip_rx_depacketizer_source_payload_last_be <= 1'd0;
-    core_ip_rx_depacketizer_is_ongoing0 <= 1'd0;
-    core_ip_rx_depacketizer_is_ongoing1 <= 1'd0;
     core_ip_rx_depacketizer_delayed_last_be_liteethip_fsm1_next_value1 <= 1'd0;
     core_ip_rx_depacketizer_delayed_last_be_liteethip_fsm1_next_value_ce1 <= 1'd0;
-    udpcore_liteethip_liteethiprx_fsm0_next_state <= udpcore_liteethip_liteethiprx_fsm0_state;
-    case (udpcore_liteethip_liteethiprx_fsm0_state)
+    core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value3 <= 1'd0;
+    core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value_ce3 <= 1'd0;
+    core_ip_rx_depacketizer_is_ongoing0 <= 1'd0;
+    core_ip_rx_depacketizer_is_ongoing1 <= 1'd0;
+    core_ip_rx_depacketizer_is_ongoing2 <= 1'd0;
+    core_ip_rx_depacketizer_is_ongoing3 <= 1'd0;
+    core_ip_rx_depacketizer_sink_ready <= 1'd0;
+    core_ip_rx_depacketizer_source_last_a <= 1'd0;
+    core_ip_rx_depacketizer_source_last_b <= 1'd0;
+    core_ip_rx_depacketizer_source_last_s <= 1'd0;
+    core_ip_rx_depacketizer_source_payload_data <= 8'd0;
+    core_ip_rx_depacketizer_source_payload_last_be <= 1'd0;
+    core_ip_rx_depacketizer_source_valid <= 1'd0;
+    core_ip_rx_depacketizer_sr_shift <= 1'd0;
+    liteethip_liteethiprx_fsm0_next_state <= 2'd0;
+    liteethip_liteethiprx_fsm1_next_state <= 1'd0;
+    liteethip_liteethiprx_fsm0_next_state <= liteethip_liteethiprx_fsm0_state;
+    case (liteethip_liteethiprx_fsm0_state)
         1'd1: begin
             core_ip_rx_depacketizer_sink_ready <= 1'd1;
             if (core_ip_rx_depacketizer_sink_valid) begin
@@ -4315,7 +4630,7 @@ always @(*) begin
                 core_ip_rx_depacketizer_count_liteethip_fsm0_next_value_ce2 <= 1'd1;
                 core_ip_rx_depacketizer_sr_shift <= 1'd1;
                 if ((core_ip_rx_depacketizer_count == 5'd19)) begin
-                    udpcore_liteethip_liteethiprx_fsm0_next_state <= 2'd2;
+                    liteethip_liteethiprx_fsm0_next_state <= 2'd2;
                     core_ip_rx_depacketizer_count_liteethip_fsm0_next_value2 <= (core_ip_rx_depacketizer_count + 1'd1);
                     core_ip_rx_depacketizer_count_liteethip_fsm0_next_value_ce2 <= 1'd1;
                 end
@@ -4328,7 +4643,7 @@ always @(*) begin
             core_ip_rx_depacketizer_source_payload_data <= core_ip_rx_depacketizer_sink_payload_data;
             if ((core_ip_rx_depacketizer_source_valid & core_ip_rx_depacketizer_source_ready)) begin
                 if (core_ip_rx_depacketizer_source_last) begin
-                    udpcore_liteethip_liteethiprx_fsm0_next_state <= 1'd0;
+                    liteethip_liteethiprx_fsm0_next_state <= 1'd0;
                 end
             end
             core_ip_rx_depacketizer_is_ongoing0 <= 1'd1;
@@ -4347,22 +4662,22 @@ always @(*) begin
                 core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value3 <= 1'd1;
                 core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value_ce3 <= 1'd1;
                 if (1'd0) begin
-                    udpcore_liteethip_liteethiprx_fsm0_next_state <= 2'd2;
+                    liteethip_liteethiprx_fsm0_next_state <= 2'd2;
                 end else begin
-                    udpcore_liteethip_liteethiprx_fsm0_next_state <= 1'd1;
+                    liteethip_liteethiprx_fsm0_next_state <= 1'd1;
                 end
             end
         end
     endcase
-    udpcore_liteethip_liteethiprx_fsm1_next_state <= udpcore_liteethip_liteethiprx_fsm1_state;
-    case (udpcore_liteethip_liteethiprx_fsm1_state)
+    liteethip_liteethiprx_fsm1_next_state <= liteethip_liteethiprx_fsm1_state;
+    case (liteethip_liteethiprx_fsm1_state)
         1'd1: begin
             core_ip_rx_depacketizer_source_last_b <= 1'd1;
             core_ip_rx_depacketizer_source_last_s <= 1'd1;
             core_ip_rx_depacketizer_source_payload_last_be <= core_ip_rx_depacketizer_delayed_last_be;
             core_ip_rx_depacketizer_sink_ready <= 1'd0;
             if ((core_ip_rx_depacketizer_source_ready & core_ip_rx_depacketizer_source_valid)) begin
-                udpcore_liteethip_liteethiprx_fsm1_next_state <= 1'd0;
+                liteethip_liteethiprx_fsm1_next_state <= 1'd0;
             end
         end
         default: begin
@@ -4373,7 +4688,7 @@ always @(*) begin
                 if (((core_ip_rx_depacketizer_source_ready & core_ip_rx_depacketizer_source_valid) | ((~core_ip_rx_depacketizer_was_in_copy) & core_ip_rx_depacketizer_is_in_copy))) begin
                     core_ip_rx_depacketizer_delayed_last_be_liteethip_fsm1_next_value1 <= core_ip_rx_depacketizer_new_last_be;
                     core_ip_rx_depacketizer_delayed_last_be_liteethip_fsm1_next_value_ce1 <= 1'd1;
-                    udpcore_liteethip_liteethiprx_fsm1_next_state <= 1'd1;
+                    liteethip_liteethiprx_fsm1_next_state <= 1'd1;
                 end
             end else begin
                 if (core_ip_rx_depacketizer_sink_last) begin
@@ -4404,63 +4719,63 @@ assign core_ip_rx_liteethipv4checksum_value = (~{core_ip_rx_liteethipv4checksum_
 assign core_ip_rx_liteethipv4checksum_counter_ce = (~core_ip_rx_liteethipv4checksum_done);
 assign core_ip_rx_liteethipv4checksum_done = (core_ip_rx_liteethipv4checksum_counter == 4'd11);
 always @(*) begin
-    core_ip_rx_source_source_valid <= 1'd0;
     core_ip_rx_depacketizer_source_ready <= 1'd0;
-    udpcore_liteethip_liteethiprx_next_state <= 2'd0;
-    udpcore_liteethip_liteethiprx_next_state <= udpcore_liteethip_liteethiprx_state;
-    case (udpcore_liteethip_liteethiprx_state)
+    core_ip_rx_source_source_valid <= 1'd0;
+    liteethip_liteethiprx_next_state <= 2'd0;
+    liteethip_liteethiprx_next_state <= liteethip_liteethiprx_state;
+    case (liteethip_liteethiprx_state)
         1'd1: begin
             core_ip_rx_source_source_valid <= core_ip_rx_depacketizer_source_valid;
             core_ip_rx_depacketizer_source_ready <= core_ip_rx_source_source_ready;
             if ((core_ip_rx_source_source_valid & core_ip_rx_source_source_ready)) begin
                 if (core_ip_rx_source_source_last) begin
-                    udpcore_liteethip_liteethiprx_next_state <= 1'd0;
+                    liteethip_liteethiprx_next_state <= 1'd0;
                 end
             end
         end
         2'd2: begin
             core_ip_rx_depacketizer_source_ready <= 1'd1;
             if (((core_ip_rx_depacketizer_source_valid & core_ip_rx_depacketizer_source_last) & core_ip_rx_depacketizer_source_ready)) begin
-                udpcore_liteethip_liteethiprx_next_state <= 1'd0;
+                liteethip_liteethiprx_next_state <= 1'd0;
             end
         end
         default: begin
             if ((core_ip_rx_depacketizer_source_valid & core_ip_rx_liteethipv4checksum_done)) begin
-                udpcore_liteethip_liteethiprx_next_state <= 2'd2;
+                liteethip_liteethiprx_next_state <= 2'd2;
                 if ((((((core_ip_rx_depacketizer_source_param_target_ip == 32'd3232281138) | 1'd1) & (core_ip_rx_depacketizer_source_param_version == 3'd4)) & (core_ip_rx_depacketizer_source_param_ihl == 3'd5)) & (core_ip_rx_liteethipv4checksum_value == 1'd0))) begin
-                    udpcore_liteethip_liteethiprx_next_state <= 1'd1;
+                    liteethip_liteethiprx_next_state <= 1'd1;
                 end
             end
         end
     endcase
 end
 always @(*) begin
-    udpcore_liteethip_sel0 <= 2'd0;
+    liteethip_sel0 <= 2'd0;
     if ((core_ip_crossbar_sink_param_protocol == 1'd1)) begin
-        udpcore_liteethip_sel0 <= 1'd1;
+        liteethip_sel0 <= 1'd1;
     end
     if ((core_ip_crossbar_sink_param_protocol == 5'd17)) begin
-        udpcore_liteethip_sel0 <= 2'd2;
+        liteethip_sel0 <= 2'd2;
     end
 end
 always @(*) begin
-    udpcore_liteethip_request <= 2'd0;
-    udpcore_liteethip_request[0] <= udpcore_liteethip_status0_ongoing0;
-    udpcore_liteethip_request[1] <= udpcore_liteethip_status1_ongoing0;
+    liteethip_request <= 2'd0;
+    liteethip_request[0] <= liteethip_status0_ongoing0;
+    liteethip_request[1] <= liteethip_status1_ongoing0;
 end
 always @(*) begin
-    core_ip_crossbar_source_param_ip_address <= 32'd0;
-    core_ip_port_sink_ready <= 1'd0;
-    core_ip_crossbar_source_valid <= 1'd0;
+    core_icmp_ip_port_sink_ready <= 1'd0;
     core_ip_crossbar_source_first <= 1'd0;
     core_ip_crossbar_source_last <= 1'd0;
-    core_icmp_ip_port_sink_ready <= 1'd0;
-    core_ip_crossbar_source_payload_data <= 8'd0;
-    core_ip_crossbar_source_payload_last_be <= 1'd0;
-    core_ip_crossbar_source_payload_error <= 1'd0;
+    core_ip_crossbar_source_param_ip_address <= 32'd0;
     core_ip_crossbar_source_param_length <= 16'd0;
     core_ip_crossbar_source_param_protocol <= 8'd0;
-    case (udpcore_liteethip_grant)
+    core_ip_crossbar_source_payload_data <= 8'd0;
+    core_ip_crossbar_source_payload_error <= 1'd0;
+    core_ip_crossbar_source_payload_last_be <= 1'd0;
+    core_ip_crossbar_source_valid <= 1'd0;
+    core_ip_port_sink_ready <= 1'd0;
+    case (liteethip_grant)
         1'd0: begin
             core_ip_crossbar_source_valid <= core_icmp_ip_port_sink_valid;
             core_icmp_ip_port_sink_ready <= core_ip_crossbar_source_ready;
@@ -4487,49 +4802,39 @@ always @(*) begin
         end
     endcase
 end
+assign liteethip_status0_last = ((core_icmp_ip_port_sink_valid & core_icmp_ip_port_sink_last) & core_icmp_ip_port_sink_ready);
+assign liteethip_status0_ongoing0 = ((core_icmp_ip_port_sink_valid | liteethip_status0_ongoing1) & (~liteethip_status0_last));
+assign liteethip_status1_last = ((core_ip_port_sink_valid & core_ip_port_sink_last) & core_ip_port_sink_ready);
+assign liteethip_status1_ongoing0 = ((core_ip_port_sink_valid | liteethip_status1_ongoing1) & (~liteethip_status1_last));
 always @(*) begin
-    udpcore_liteethip_status0_last <= 1'd0;
-    if (core_icmp_ip_port_sink_valid) begin
-        udpcore_liteethip_status0_last <= (core_icmp_ip_port_sink_last & core_icmp_ip_port_sink_ready);
-    end
-end
-assign udpcore_liteethip_status0_ongoing0 = ((core_icmp_ip_port_sink_valid | udpcore_liteethip_status0_ongoing1) & (~udpcore_liteethip_status0_last));
-always @(*) begin
-    udpcore_liteethip_status1_last <= 1'd0;
-    if (core_ip_port_sink_valid) begin
-        udpcore_liteethip_status1_last <= (core_ip_port_sink_last & core_ip_port_sink_ready);
-    end
-end
-assign udpcore_liteethip_status1_ongoing0 = ((core_ip_port_sink_valid | udpcore_liteethip_status1_ongoing1) & (~udpcore_liteethip_status1_last));
-always @(*) begin
-    udpcore_liteethip_sel1 <= 2'd0;
-    if (udpcore_liteethip_first) begin
-        udpcore_liteethip_sel1 <= udpcore_liteethip_sel0;
+    liteethip_sel1 <= 2'd0;
+    if ((~liteethip_sel_locked)) begin
+        liteethip_sel1 <= liteethip_sel0;
     end else begin
-        udpcore_liteethip_sel1 <= udpcore_liteethip_sel_ongoing;
+        liteethip_sel1 <= liteethip_sel_ongoing;
     end
 end
 always @(*) begin
-    core_ip_port_source_valid <= 1'd0;
-    core_ip_port_source_first <= 1'd0;
-    core_ip_crossbar_sink_ready <= 1'd0;
-    core_ip_port_source_last <= 1'd0;
-    core_ip_port_source_payload_data <= 8'd0;
-    core_ip_port_source_payload_last_be <= 1'd0;
-    core_ip_port_source_payload_error <= 1'd0;
-    core_ip_port_source_param_length <= 16'd0;
-    core_ip_port_source_param_protocol <= 8'd0;
-    core_ip_port_source_param_ip_address <= 32'd0;
-    core_icmp_ip_port_source_valid <= 1'd0;
     core_icmp_ip_port_source_first <= 1'd0;
     core_icmp_ip_port_source_last <= 1'd0;
-    core_icmp_ip_port_source_payload_data <= 8'd0;
-    core_icmp_ip_port_source_payload_last_be <= 1'd0;
-    core_icmp_ip_port_source_payload_error <= 1'd0;
+    core_icmp_ip_port_source_param_ip_address <= 32'd0;
     core_icmp_ip_port_source_param_length <= 16'd0;
     core_icmp_ip_port_source_param_protocol <= 8'd0;
-    core_icmp_ip_port_source_param_ip_address <= 32'd0;
-    case (udpcore_liteethip_sel1)
+    core_icmp_ip_port_source_payload_data <= 8'd0;
+    core_icmp_ip_port_source_payload_error <= 1'd0;
+    core_icmp_ip_port_source_payload_last_be <= 1'd0;
+    core_icmp_ip_port_source_valid <= 1'd0;
+    core_ip_crossbar_sink_ready <= 1'd0;
+    core_ip_port_source_first <= 1'd0;
+    core_ip_port_source_last <= 1'd0;
+    core_ip_port_source_param_ip_address <= 32'd0;
+    core_ip_port_source_param_length <= 16'd0;
+    core_ip_port_source_param_protocol <= 8'd0;
+    core_ip_port_source_payload_data <= 8'd0;
+    core_ip_port_source_payload_error <= 1'd0;
+    core_ip_port_source_payload_last_be <= 1'd0;
+    core_ip_port_source_valid <= 1'd0;
+    case (liteethip_sel1)
         1'd1: begin
             core_icmp_ip_port_source_valid <= core_ip_crossbar_sink_valid;
             core_ip_crossbar_sink_ready <= core_icmp_ip_port_source_ready;
@@ -4559,13 +4864,8 @@ always @(*) begin
         end
     endcase
 end
-always @(*) begin
-    udpcore_liteethip_last <= 1'd0;
-    if (core_ip_crossbar_sink_valid) begin
-        udpcore_liteethip_last <= (core_ip_crossbar_sink_last & core_ip_crossbar_sink_ready);
-    end
-end
-assign udpcore_liteethip_ongoing0 = ((core_ip_crossbar_sink_valid | udpcore_liteethip_ongoing1) & (~udpcore_liteethip_last));
+assign liteethip_last = ((core_ip_crossbar_sink_valid & core_ip_crossbar_sink_last) & core_ip_crossbar_sink_ready);
+assign liteethip_ongoing0 = ((core_ip_crossbar_sink_valid | liteethip_ongoing1) & (~liteethip_last));
 assign core_icmp_echo_sink_valid = core_icmp_rx_source_source_valid;
 assign core_icmp_rx_source_source_ready = core_icmp_echo_sink_ready;
 assign core_icmp_echo_sink_first = core_icmp_rx_source_source_first;
@@ -4644,8 +4944,8 @@ end
 always @(*) begin
     core_icmp_tx_packetizer_header <= 64'd0;
     core_icmp_tx_packetizer_header[31:16] <= {core_icmp_tx_packetizer_sink_param_checksum[7:0], core_icmp_tx_packetizer_sink_param_checksum[15:8]};
-    core_icmp_tx_packetizer_header[15:8] <= {core_icmp_tx_packetizer_sink_param_code[7:0]};
-    core_icmp_tx_packetizer_header[7:0] <= {core_icmp_tx_packetizer_sink_param_msgtype[7:0]};
+    core_icmp_tx_packetizer_header[15:8] <= {core_icmp_tx_packetizer_sink_param_code};
+    core_icmp_tx_packetizer_header[7:0] <= {core_icmp_tx_packetizer_sink_param_msgtype};
     core_icmp_tx_packetizer_header[63:32] <= {core_icmp_tx_packetizer_sink_param_quench[7:0], core_icmp_tx_packetizer_sink_param_quench[15:8], core_icmp_tx_packetizer_sink_param_quench[23:16], core_icmp_tx_packetizer_sink_param_quench[31:24]};
 end
 assign core_icmp_tx_packetizer_sink_last_be = core_icmp_tx_packetizer_sink_last;
@@ -4663,26 +4963,26 @@ assign core_icmp_tx_packetizer_source_payload_error = core_icmp_tx_packetizer_si
 always @(*) begin
     core_icmp_tx_packetizer_count_fsm0_next_value0 <= 3'd0;
     core_icmp_tx_packetizer_count_fsm0_next_value_ce0 <= 1'd0;
-    core_icmp_tx_packetizer_sink_ready <= 1'd0;
-    core_icmp_tx_packetizer_is_ongoing0 <= 1'd0;
-    core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value1 <= 1'd0;
-    core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value_ce1 <= 1'd0;
-    core_icmp_tx_packetizer_is_ongoing1 <= 1'd0;
-    core_icmp_tx_packetizer_is_ongoing2 <= 1'd0;
-    core_icmp_tx_packetizer_source_valid <= 1'd0;
-    core_icmp_tx_packetizer_source_last_a <= 1'd0;
-    core_icmp_tx_packetizer_source_last_b <= 1'd0;
-    udpcore_liteethicmptx_fsm1_next_state <= 1'd0;
-    core_icmp_tx_packetizer_source_last_s <= 1'd0;
-    core_icmp_tx_packetizer_source_payload_last_be <= 1'd0;
-    core_icmp_tx_packetizer_source_payload_data <= 8'd0;
     core_icmp_tx_packetizer_delayed_last_be_fsm1_next_value0 <= 1'd0;
     core_icmp_tx_packetizer_delayed_last_be_fsm1_next_value_ce0 <= 1'd0;
+    core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value1 <= 1'd0;
+    core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value_ce1 <= 1'd0;
+    core_icmp_tx_packetizer_is_ongoing0 <= 1'd0;
+    core_icmp_tx_packetizer_is_ongoing1 <= 1'd0;
+    core_icmp_tx_packetizer_is_ongoing2 <= 1'd0;
+    core_icmp_tx_packetizer_sink_ready <= 1'd0;
+    core_icmp_tx_packetizer_source_last_a <= 1'd0;
+    core_icmp_tx_packetizer_source_last_b <= 1'd0;
+    core_icmp_tx_packetizer_source_last_s <= 1'd0;
+    core_icmp_tx_packetizer_source_payload_data <= 8'd0;
+    core_icmp_tx_packetizer_source_payload_last_be <= 1'd0;
+    core_icmp_tx_packetizer_source_valid <= 1'd0;
     core_icmp_tx_packetizer_sr_load <= 1'd0;
     core_icmp_tx_packetizer_sr_shift <= 1'd0;
-    udpcore_liteethicmptx_fsm0_next_state <= 2'd0;
-    udpcore_liteethicmptx_fsm0_next_state <= udpcore_liteethicmptx_fsm0_state;
-    case (udpcore_liteethicmptx_fsm0_state)
+    liteethicmptx_fsm0_next_state <= 2'd0;
+    liteethicmptx_fsm1_next_state <= 1'd0;
+    liteethicmptx_fsm0_next_state <= liteethicmptx_fsm0_state;
+    case (liteethicmptx_fsm0_state)
         1'd1: begin
             core_icmp_tx_packetizer_source_valid <= 1'd1;
             core_icmp_tx_packetizer_source_last_a <= 1'd0;
@@ -4691,7 +4991,7 @@ always @(*) begin
                 core_icmp_tx_packetizer_sr_shift <= 1'd1;
                 if ((core_icmp_tx_packetizer_count == 3'd7)) begin
                     core_icmp_tx_packetizer_sr_shift <= 1'd0;
-                    udpcore_liteethicmptx_fsm0_next_state <= 2'd2;
+                    liteethicmptx_fsm0_next_state <= 2'd2;
                     core_icmp_tx_packetizer_count_fsm0_next_value0 <= (core_icmp_tx_packetizer_count + 1'd1);
                     core_icmp_tx_packetizer_count_fsm0_next_value_ce0 <= 1'd1;
                 end else begin
@@ -4707,7 +5007,7 @@ always @(*) begin
             if ((core_icmp_tx_packetizer_source_valid & core_icmp_tx_packetizer_source_ready)) begin
                 core_icmp_tx_packetizer_sink_ready <= 1'd1;
                 if (core_icmp_tx_packetizer_source_last) begin
-                    udpcore_liteethicmptx_fsm0_next_state <= 1'd0;
+                    liteethicmptx_fsm0_next_state <= 1'd0;
                 end
             end
             core_icmp_tx_packetizer_is_ongoing0 <= 1'd1;
@@ -4729,24 +5029,24 @@ always @(*) begin
                     core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value1 <= 1'd1;
                     core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value_ce1 <= 1'd1;
                     if (1'd0) begin
-                        udpcore_liteethicmptx_fsm0_next_state <= 2'd2;
+                        liteethicmptx_fsm0_next_state <= 2'd2;
                     end else begin
-                        udpcore_liteethicmptx_fsm0_next_state <= 1'd1;
+                        liteethicmptx_fsm0_next_state <= 1'd1;
                     end
                 end
             end
             core_icmp_tx_packetizer_is_ongoing2 <= 1'd1;
         end
     endcase
-    udpcore_liteethicmptx_fsm1_next_state <= udpcore_liteethicmptx_fsm1_state;
-    case (udpcore_liteethicmptx_fsm1_state)
+    liteethicmptx_fsm1_next_state <= liteethicmptx_fsm1_state;
+    case (liteethicmptx_fsm1_state)
         1'd1: begin
             core_icmp_tx_packetizer_source_last_b <= 1'd1;
             core_icmp_tx_packetizer_source_last_s <= 1'd1;
             core_icmp_tx_packetizer_source_payload_last_be <= core_icmp_tx_packetizer_delayed_last_be;
             core_icmp_tx_packetizer_sink_ready <= 1'd0;
             if (core_icmp_tx_packetizer_source_ready) begin
-                udpcore_liteethicmptx_fsm1_next_state <= 1'd0;
+                liteethicmptx_fsm1_next_state <= 1'd0;
             end
         end
         default: begin
@@ -4757,7 +5057,7 @@ always @(*) begin
                 if ((core_icmp_tx_packetizer_source_ready & core_icmp_tx_packetizer_source_valid)) begin
                     core_icmp_tx_packetizer_delayed_last_be_fsm1_next_value0 <= core_icmp_tx_packetizer_new_last_be;
                     core_icmp_tx_packetizer_delayed_last_be_fsm1_next_value_ce0 <= 1'd1;
-                    udpcore_liteethicmptx_fsm1_next_state <= 1'd1;
+                    liteethicmptx_fsm1_next_state <= 1'd1;
                 end
             end else begin
                 if (core_icmp_tx_packetizer_in_data_copy) begin
@@ -4777,21 +5077,21 @@ always @(*) begin
     endcase
 end
 always @(*) begin
-    core_icmp_tx_source_source_valid <= 1'd0;
     core_icmp_tx_packetizer_source_ready <= 1'd0;
-    udpcore_liteethicmptx_next_state <= 1'd0;
-    udpcore_liteethicmptx_next_state <= udpcore_liteethicmptx_state;
-    case (udpcore_liteethicmptx_state)
+    core_icmp_tx_source_source_valid <= 1'd0;
+    liteethicmptx_next_state <= 1'd0;
+    liteethicmptx_next_state <= liteethicmptx_state;
+    case (liteethicmptx_state)
         1'd1: begin
             core_icmp_tx_source_source_valid <= core_icmp_tx_packetizer_source_valid;
             core_icmp_tx_packetizer_source_ready <= core_icmp_tx_source_source_ready;
             if (((core_icmp_tx_source_source_valid & core_icmp_tx_source_source_last) & core_icmp_tx_source_source_ready)) begin
-                udpcore_liteethicmptx_next_state <= 1'd0;
+                liteethicmptx_next_state <= 1'd0;
             end
         end
         default: begin
             if (core_icmp_tx_packetizer_source_valid) begin
-                udpcore_liteethicmptx_next_state <= 1'd1;
+                liteethicmptx_next_state <= 1'd1;
             end
         end
     endcase
@@ -4817,10 +5117,10 @@ assign core_icmp_rx_source_source_param_quench = core_icmp_rx_depacketizer_sourc
 assign core_icmp_rx_source_source_param_ip_address = core_icmp_rx_sink_sink_param_ip_address;
 assign core_icmp_rx_source_source_param_length = (core_icmp_rx_sink_sink_param_length - 4'd8);
 assign core_icmp_rx_depacketizer_header = core_icmp_rx_depacketizer_sr;
-assign core_icmp_rx_depacketizer_source_param_checksum = {rhs_slice_proxy61[7:0], rhs_slice_proxy60[15:8]};
-assign core_icmp_rx_depacketizer_source_param_code = {rhs_slice_proxy62[7:0]};
-assign core_icmp_rx_depacketizer_source_param_msgtype = {rhs_slice_proxy63[7:0]};
-assign core_icmp_rx_depacketizer_source_param_quench = {rhs_slice_proxy67[7:0], rhs_slice_proxy66[15:8], rhs_slice_proxy65[23:16], rhs_slice_proxy64[31:24]};
+assign core_icmp_rx_depacketizer_source_param_checksum = {core_icmp_rx_depacketizer_header[23:16], core_icmp_rx_depacketizer_header[31:24]};
+assign core_icmp_rx_depacketizer_source_param_code = {core_icmp_rx_depacketizer_header[15:8]};
+assign core_icmp_rx_depacketizer_source_param_msgtype = {core_icmp_rx_depacketizer_header[7:0]};
+assign core_icmp_rx_depacketizer_source_param_quench = {core_icmp_rx_depacketizer_header[39:32], core_icmp_rx_depacketizer_header[47:40], core_icmp_rx_depacketizer_header[55:48], core_icmp_rx_depacketizer_header[63:56]};
 assign core_icmp_rx_depacketizer_source_payload_error = core_icmp_rx_depacketizer_sink_payload_error;
 assign core_icmp_rx_depacketizer_sink_last_be = core_icmp_rx_depacketizer_sink_last;
 assign core_icmp_rx_depacketizer_new_last_be = {core_icmp_rx_depacketizer_sink_last_be};
@@ -4834,28 +5134,28 @@ always @(*) begin
     end
 end
 always @(*) begin
-    udpcore_liteethicmprx_fsm0_next_state <= 2'd0;
     core_icmp_rx_depacketizer_count_fsm0_next_value2 <= 3'd0;
     core_icmp_rx_depacketizer_count_fsm0_next_value_ce2 <= 1'd0;
+    core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value1 <= 1'd0;
+    core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value_ce1 <= 1'd0;
     core_icmp_rx_depacketizer_fsm_from_idle_fsm0_next_value3 <= 1'd0;
     core_icmp_rx_depacketizer_fsm_from_idle_fsm0_next_value_ce3 <= 1'd0;
     core_icmp_rx_depacketizer_is_ongoing0 <= 1'd0;
     core_icmp_rx_depacketizer_is_ongoing1 <= 1'd0;
-    core_icmp_rx_depacketizer_sink_ready <= 1'd0;
     core_icmp_rx_depacketizer_is_ongoing2 <= 1'd0;
-    udpcore_liteethicmprx_fsm1_next_state <= 1'd0;
-    core_icmp_rx_depacketizer_source_valid <= 1'd0;
     core_icmp_rx_depacketizer_is_ongoing3 <= 1'd0;
+    core_icmp_rx_depacketizer_sink_ready <= 1'd0;
     core_icmp_rx_depacketizer_source_last_a <= 1'd0;
-    core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value1 <= 1'd0;
     core_icmp_rx_depacketizer_source_last_b <= 1'd0;
-    core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value_ce1 <= 1'd0;
     core_icmp_rx_depacketizer_source_last_s <= 1'd0;
-    core_icmp_rx_depacketizer_source_payload_last_be <= 1'd0;
     core_icmp_rx_depacketizer_source_payload_data <= 8'd0;
+    core_icmp_rx_depacketizer_source_payload_last_be <= 1'd0;
+    core_icmp_rx_depacketizer_source_valid <= 1'd0;
     core_icmp_rx_depacketizer_sr_shift <= 1'd0;
-    udpcore_liteethicmprx_fsm0_next_state <= udpcore_liteethicmprx_fsm0_state;
-    case (udpcore_liteethicmprx_fsm0_state)
+    liteethicmprx_fsm0_next_state <= 2'd0;
+    liteethicmprx_fsm1_next_state <= 1'd0;
+    liteethicmprx_fsm0_next_state <= liteethicmprx_fsm0_state;
+    case (liteethicmprx_fsm0_state)
         1'd1: begin
             core_icmp_rx_depacketizer_sink_ready <= 1'd1;
             if (core_icmp_rx_depacketizer_sink_valid) begin
@@ -4863,7 +5163,7 @@ always @(*) begin
                 core_icmp_rx_depacketizer_count_fsm0_next_value_ce2 <= 1'd1;
                 core_icmp_rx_depacketizer_sr_shift <= 1'd1;
                 if ((core_icmp_rx_depacketizer_count == 3'd7)) begin
-                    udpcore_liteethicmprx_fsm0_next_state <= 2'd2;
+                    liteethicmprx_fsm0_next_state <= 2'd2;
                     core_icmp_rx_depacketizer_count_fsm0_next_value2 <= (core_icmp_rx_depacketizer_count + 1'd1);
                     core_icmp_rx_depacketizer_count_fsm0_next_value_ce2 <= 1'd1;
                 end
@@ -4876,7 +5176,7 @@ always @(*) begin
             core_icmp_rx_depacketizer_source_payload_data <= core_icmp_rx_depacketizer_sink_payload_data;
             if ((core_icmp_rx_depacketizer_source_valid & core_icmp_rx_depacketizer_source_ready)) begin
                 if (core_icmp_rx_depacketizer_source_last) begin
-                    udpcore_liteethicmprx_fsm0_next_state <= 1'd0;
+                    liteethicmprx_fsm0_next_state <= 1'd0;
                 end
             end
             core_icmp_rx_depacketizer_is_ongoing0 <= 1'd1;
@@ -4895,22 +5195,22 @@ always @(*) begin
                 core_icmp_rx_depacketizer_fsm_from_idle_fsm0_next_value3 <= 1'd1;
                 core_icmp_rx_depacketizer_fsm_from_idle_fsm0_next_value_ce3 <= 1'd1;
                 if (1'd0) begin
-                    udpcore_liteethicmprx_fsm0_next_state <= 2'd2;
+                    liteethicmprx_fsm0_next_state <= 2'd2;
                 end else begin
-                    udpcore_liteethicmprx_fsm0_next_state <= 1'd1;
+                    liteethicmprx_fsm0_next_state <= 1'd1;
                 end
             end
         end
     endcase
-    udpcore_liteethicmprx_fsm1_next_state <= udpcore_liteethicmprx_fsm1_state;
-    case (udpcore_liteethicmprx_fsm1_state)
+    liteethicmprx_fsm1_next_state <= liteethicmprx_fsm1_state;
+    case (liteethicmprx_fsm1_state)
         1'd1: begin
             core_icmp_rx_depacketizer_source_last_b <= 1'd1;
             core_icmp_rx_depacketizer_source_last_s <= 1'd1;
             core_icmp_rx_depacketizer_source_payload_last_be <= core_icmp_rx_depacketizer_delayed_last_be;
             core_icmp_rx_depacketizer_sink_ready <= 1'd0;
             if ((core_icmp_rx_depacketizer_source_ready & core_icmp_rx_depacketizer_source_valid)) begin
-                udpcore_liteethicmprx_fsm1_next_state <= 1'd0;
+                liteethicmprx_fsm1_next_state <= 1'd0;
             end
         end
         default: begin
@@ -4921,7 +5221,7 @@ always @(*) begin
                 if (((core_icmp_rx_depacketizer_source_ready & core_icmp_rx_depacketizer_source_valid) | ((~core_icmp_rx_depacketizer_was_in_copy) & core_icmp_rx_depacketizer_is_in_copy))) begin
                     core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value1 <= core_icmp_rx_depacketizer_new_last_be;
                     core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value_ce1 <= 1'd1;
-                    udpcore_liteethicmprx_fsm1_next_state <= 1'd1;
+                    liteethicmprx_fsm1_next_state <= 1'd1;
                 end
             end else begin
                 if (core_icmp_rx_depacketizer_sink_last) begin
@@ -4939,51 +5239,70 @@ always @(*) begin
     endcase
 end
 always @(*) begin
-    udpcore_liteethicmprx_next_state <= 2'd0;
     core_icmp_rx_depacketizer_source_ready <= 1'd0;
     core_icmp_rx_source_source_valid <= 1'd0;
-    udpcore_liteethicmprx_next_state <= udpcore_liteethicmprx_state;
-    case (udpcore_liteethicmprx_state)
+    liteethicmprx_next_state <= 2'd0;
+    liteethicmprx_next_state <= liteethicmprx_state;
+    case (liteethicmprx_state)
         1'd1: begin
             core_icmp_rx_source_source_valid <= core_icmp_rx_depacketizer_source_valid;
             core_icmp_rx_depacketizer_source_ready <= core_icmp_rx_source_source_ready;
             if ((core_icmp_rx_source_source_valid & core_icmp_rx_source_source_ready)) begin
                 if (core_icmp_rx_source_source_last) begin
-                    udpcore_liteethicmprx_next_state <= 1'd0;
+                    liteethicmprx_next_state <= 1'd0;
                 end
             end
         end
         2'd2: begin
             core_icmp_rx_depacketizer_source_ready <= 1'd1;
             if (((core_icmp_rx_depacketizer_source_valid & core_icmp_rx_depacketizer_source_last) & core_icmp_rx_depacketizer_source_ready)) begin
-                udpcore_liteethicmprx_next_state <= 1'd0;
+                liteethicmprx_next_state <= 1'd0;
             end
         end
         default: begin
             if (core_icmp_rx_depacketizer_source_valid) begin
-                udpcore_liteethicmprx_next_state <= 2'd2;
+                liteethicmprx_next_state <= 2'd2;
                 if ((core_icmp_rx_sink_sink_param_protocol == 1'd1)) begin
                     if ((core_icmp_rx_depacketizer_source_param_msgtype == 4'd8)) begin
-                        udpcore_liteethicmprx_next_state <= 1'd1;
+                        liteethicmprx_next_state <= 1'd1;
                     end
                 end
             end
         end
     endcase
 end
-assign core_icmp_echo_sink_sink_valid = core_icmp_echo_sink_valid;
-assign core_icmp_echo_sink_ready = core_icmp_echo_sink_sink_ready;
-assign core_icmp_echo_sink_sink_first = core_icmp_echo_sink_first;
-assign core_icmp_echo_sink_sink_last = core_icmp_echo_sink_last;
-assign core_icmp_echo_sink_sink_payload_data = core_icmp_echo_sink_payload_data;
-assign core_icmp_echo_sink_sink_payload_last_be = core_icmp_echo_sink_payload_last_be;
-assign core_icmp_echo_sink_sink_payload_error = core_icmp_echo_sink_payload_error;
-assign core_icmp_echo_sink_sink_param_checksum = core_icmp_echo_sink_param_checksum;
-assign core_icmp_echo_sink_sink_param_code = core_icmp_echo_sink_param_code;
-assign core_icmp_echo_sink_sink_param_msgtype = core_icmp_echo_sink_param_msgtype;
-assign core_icmp_echo_sink_sink_param_quench = core_icmp_echo_sink_param_quench;
-assign core_icmp_echo_sink_sink_param_ip_address = core_icmp_echo_sink_param_ip_address;
-assign core_icmp_echo_sink_sink_param_length = core_icmp_echo_sink_param_length;
+always @(*) begin
+    core_icmp_echo_sink_ready <= 1'd0;
+    core_icmp_echo_sink_sink_first <= 1'd0;
+    core_icmp_echo_sink_sink_last <= 1'd0;
+    core_icmp_echo_sink_sink_param_checksum <= 16'd0;
+    core_icmp_echo_sink_sink_param_code <= 8'd0;
+    core_icmp_echo_sink_sink_param_ip_address <= 32'd0;
+    core_icmp_echo_sink_sink_param_length <= 16'd0;
+    core_icmp_echo_sink_sink_param_msgtype <= 8'd0;
+    core_icmp_echo_sink_sink_param_quench <= 32'd0;
+    core_icmp_echo_sink_sink_payload_data <= 8'd0;
+    core_icmp_echo_sink_sink_payload_error <= 1'd0;
+    core_icmp_echo_sink_sink_payload_last_be <= 1'd0;
+    core_icmp_echo_sink_sink_valid <= 1'd0;
+    if ((core_icmp_echo_sink_param_length <= 8'd128)) begin
+        core_icmp_echo_sink_sink_valid <= core_icmp_echo_sink_valid;
+        core_icmp_echo_sink_ready <= core_icmp_echo_sink_sink_ready;
+        core_icmp_echo_sink_sink_first <= core_icmp_echo_sink_first;
+        core_icmp_echo_sink_sink_last <= core_icmp_echo_sink_last;
+        core_icmp_echo_sink_sink_payload_data <= core_icmp_echo_sink_payload_data;
+        core_icmp_echo_sink_sink_payload_last_be <= core_icmp_echo_sink_payload_last_be;
+        core_icmp_echo_sink_sink_payload_error <= core_icmp_echo_sink_payload_error;
+        core_icmp_echo_sink_sink_param_checksum <= core_icmp_echo_sink_param_checksum;
+        core_icmp_echo_sink_sink_param_code <= core_icmp_echo_sink_param_code;
+        core_icmp_echo_sink_sink_param_msgtype <= core_icmp_echo_sink_param_msgtype;
+        core_icmp_echo_sink_sink_param_quench <= core_icmp_echo_sink_param_quench;
+        core_icmp_echo_sink_sink_param_ip_address <= core_icmp_echo_sink_param_ip_address;
+        core_icmp_echo_sink_sink_param_length <= core_icmp_echo_sink_param_length;
+    end else begin
+        core_icmp_echo_sink_ready <= 1'd1;
+    end
+end
 assign core_icmp_echo_source_valid = core_icmp_echo_source_source_valid;
 assign core_icmp_echo_source_source_ready = core_icmp_echo_source_ready;
 assign core_icmp_echo_source_first = core_icmp_echo_source_source_first;
@@ -5007,12 +5326,13 @@ assign core_icmp_echo_param_fifo_sink_param_msgtype = core_icmp_echo_sink_sink_p
 assign core_icmp_echo_param_fifo_sink_param_quench = core_icmp_echo_sink_sink_param_quench;
 assign core_icmp_echo_param_fifo_sink_param_ip_address = core_icmp_echo_sink_sink_param_ip_address;
 assign core_icmp_echo_param_fifo_sink_param_length = core_icmp_echo_sink_sink_param_length;
+assign core_icmp_echo_payload_fifo_sink_first = core_icmp_echo_sink_sink_first;
 assign core_icmp_echo_payload_fifo_sink_last = core_icmp_echo_sink_sink_last;
 assign core_icmp_echo_payload_fifo_sink_payload_data = core_icmp_echo_sink_sink_payload_data;
 assign core_icmp_echo_payload_fifo_sink_payload_last_be = core_icmp_echo_sink_sink_payload_last_be;
 assign core_icmp_echo_payload_fifo_sink_payload_error = core_icmp_echo_sink_sink_payload_error;
 assign core_icmp_echo_param_fifo_sink_valid = (core_icmp_echo_sink_sink_valid & core_icmp_echo_sink_sink_last);
-assign core_icmp_echo_payload_fifo_sink_valid = (core_icmp_echo_sink_sink_valid & core_icmp_echo_payload_fifo_sink_ready);
+assign core_icmp_echo_payload_fifo_sink_valid = (core_icmp_echo_sink_sink_valid & core_icmp_echo_param_fifo_sink_ready);
 assign core_icmp_echo_sink_sink_ready = (core_icmp_echo_param_fifo_sink_ready & core_icmp_echo_payload_fifo_sink_ready);
 assign core_icmp_echo_source_source_valid = core_icmp_echo_param_fifo_source_valid;
 assign core_icmp_echo_source_source_param_checksum = core_icmp_echo_param_fifo_source_param_checksum;
@@ -5177,28 +5497,28 @@ always @(*) begin
 end
 assign core_tx_packetizer_source_payload_error = core_tx_packetizer_sink_payload_error;
 always @(*) begin
-    core_tx_packetizer_source_last_a <= 1'd0;
-    core_tx_packetizer_source_last_b <= 1'd0;
-    core_tx_packetizer_source_payload_data <= 8'd0;
-    core_tx_packetizer_source_last_s <= 1'd0;
-    core_tx_packetizer_source_payload_last_be <= 1'd0;
-    core_tx_packetizer_source_valid <= 1'd0;
-    udpcore_liteethudp_liteethudptx_fsm0_next_state <= 2'd0;
-    core_tx_packetizer_sr_load <= 1'd0;
     core_tx_packetizer_count_liteethudp_fsm0_next_value0 <= 3'd0;
-    core_tx_packetizer_sr_shift <= 1'd0;
     core_tx_packetizer_count_liteethudp_fsm0_next_value_ce0 <= 1'd0;
-    core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value1 <= 1'd0;
-    core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value_ce1 <= 1'd0;
-    core_tx_packetizer_sink_ready <= 1'd0;
-    core_tx_packetizer_is_ongoing0 <= 1'd0;
-    core_tx_packetizer_is_ongoing1 <= 1'd0;
-    udpcore_liteethudp_liteethudptx_fsm1_next_state <= 1'd0;
-    core_tx_packetizer_is_ongoing2 <= 1'd0;
     core_tx_packetizer_delayed_last_be_liteethudp_fsm1_next_value0 <= 1'd0;
     core_tx_packetizer_delayed_last_be_liteethudp_fsm1_next_value_ce0 <= 1'd0;
-    udpcore_liteethudp_liteethudptx_fsm0_next_state <= udpcore_liteethudp_liteethudptx_fsm0_state;
-    case (udpcore_liteethudp_liteethudptx_fsm0_state)
+    core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value1 <= 1'd0;
+    core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value_ce1 <= 1'd0;
+    core_tx_packetizer_is_ongoing0 <= 1'd0;
+    core_tx_packetizer_is_ongoing1 <= 1'd0;
+    core_tx_packetizer_is_ongoing2 <= 1'd0;
+    core_tx_packetizer_sink_ready <= 1'd0;
+    core_tx_packetizer_source_last_a <= 1'd0;
+    core_tx_packetizer_source_last_b <= 1'd0;
+    core_tx_packetizer_source_last_s <= 1'd0;
+    core_tx_packetizer_source_payload_data <= 8'd0;
+    core_tx_packetizer_source_payload_last_be <= 1'd0;
+    core_tx_packetizer_source_valid <= 1'd0;
+    core_tx_packetizer_sr_load <= 1'd0;
+    core_tx_packetizer_sr_shift <= 1'd0;
+    liteethudp_liteethudptx_fsm0_next_state <= 2'd0;
+    liteethudp_liteethudptx_fsm1_next_state <= 1'd0;
+    liteethudp_liteethudptx_fsm0_next_state <= liteethudp_liteethudptx_fsm0_state;
+    case (liteethudp_liteethudptx_fsm0_state)
         1'd1: begin
             core_tx_packetizer_source_valid <= 1'd1;
             core_tx_packetizer_source_last_a <= 1'd0;
@@ -5207,7 +5527,7 @@ always @(*) begin
                 core_tx_packetizer_sr_shift <= 1'd1;
                 if ((core_tx_packetizer_count == 3'd7)) begin
                     core_tx_packetizer_sr_shift <= 1'd0;
-                    udpcore_liteethudp_liteethudptx_fsm0_next_state <= 2'd2;
+                    liteethudp_liteethudptx_fsm0_next_state <= 2'd2;
                     core_tx_packetizer_count_liteethudp_fsm0_next_value0 <= (core_tx_packetizer_count + 1'd1);
                     core_tx_packetizer_count_liteethudp_fsm0_next_value_ce0 <= 1'd1;
                 end else begin
@@ -5223,7 +5543,7 @@ always @(*) begin
             if ((core_tx_packetizer_source_valid & core_tx_packetizer_source_ready)) begin
                 core_tx_packetizer_sink_ready <= 1'd1;
                 if (core_tx_packetizer_source_last) begin
-                    udpcore_liteethudp_liteethudptx_fsm0_next_state <= 1'd0;
+                    liteethudp_liteethudptx_fsm0_next_state <= 1'd0;
                 end
             end
             core_tx_packetizer_is_ongoing0 <= 1'd1;
@@ -5245,24 +5565,24 @@ always @(*) begin
                     core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value1 <= 1'd1;
                     core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value_ce1 <= 1'd1;
                     if (1'd0) begin
-                        udpcore_liteethudp_liteethudptx_fsm0_next_state <= 2'd2;
+                        liteethudp_liteethudptx_fsm0_next_state <= 2'd2;
                     end else begin
-                        udpcore_liteethudp_liteethudptx_fsm0_next_state <= 1'd1;
+                        liteethudp_liteethudptx_fsm0_next_state <= 1'd1;
                     end
                 end
             end
             core_tx_packetizer_is_ongoing2 <= 1'd1;
         end
     endcase
-    udpcore_liteethudp_liteethudptx_fsm1_next_state <= udpcore_liteethudp_liteethudptx_fsm1_state;
-    case (udpcore_liteethudp_liteethudptx_fsm1_state)
+    liteethudp_liteethudptx_fsm1_next_state <= liteethudp_liteethudptx_fsm1_state;
+    case (liteethudp_liteethudptx_fsm1_state)
         1'd1: begin
             core_tx_packetizer_source_last_b <= 1'd1;
             core_tx_packetizer_source_last_s <= 1'd1;
             core_tx_packetizer_source_payload_last_be <= core_tx_packetizer_delayed_last_be;
             core_tx_packetizer_sink_ready <= 1'd0;
             if (core_tx_packetizer_source_ready) begin
-                udpcore_liteethudp_liteethudptx_fsm1_next_state <= 1'd0;
+                liteethudp_liteethudptx_fsm1_next_state <= 1'd0;
             end
         end
         default: begin
@@ -5273,7 +5593,7 @@ always @(*) begin
                 if ((core_tx_packetizer_source_ready & core_tx_packetizer_source_valid)) begin
                     core_tx_packetizer_delayed_last_be_liteethudp_fsm1_next_value0 <= core_tx_packetizer_new_last_be;
                     core_tx_packetizer_delayed_last_be_liteethudp_fsm1_next_value_ce0 <= 1'd1;
-                    udpcore_liteethudp_liteethudptx_fsm1_next_state <= 1'd1;
+                    liteethudp_liteethudptx_fsm1_next_state <= 1'd1;
                 end
             end else begin
                 if (core_tx_packetizer_in_data_copy) begin
@@ -5293,19 +5613,19 @@ always @(*) begin
     endcase
 end
 always @(*) begin
-    core_tx_source_source_param_length <= 16'd0;
-    core_tx_source_source_param_protocol <= 8'd0;
-    core_tx_source_source_param_ip_address <= 32'd0;
-    udpcore_liteethudp_liteethudptx_next_state <= 1'd0;
-    core_tx_source_source_valid <= 1'd0;
+    core_tx_packetizer_source_ready <= 1'd0;
     core_tx_source_source_first <= 1'd0;
     core_tx_source_source_last <= 1'd0;
+    core_tx_source_source_param_ip_address <= 32'd0;
+    core_tx_source_source_param_length <= 16'd0;
+    core_tx_source_source_param_protocol <= 8'd0;
     core_tx_source_source_payload_data <= 8'd0;
     core_tx_source_source_payload_error <= 1'd0;
     core_tx_source_source_payload_last_be <= 1'd0;
-    core_tx_packetizer_source_ready <= 1'd0;
-    udpcore_liteethudp_liteethudptx_next_state <= udpcore_liteethudp_liteethudptx_state;
-    case (udpcore_liteethudp_liteethudptx_state)
+    core_tx_source_source_valid <= 1'd0;
+    liteethudp_liteethudptx_next_state <= 1'd0;
+    liteethudp_liteethudptx_next_state <= liteethudp_liteethudptx_state;
+    case (liteethudp_liteethudptx_state)
         1'd1: begin
             core_tx_source_source_valid <= core_tx_packetizer_source_valid;
             core_tx_packetizer_source_ready <= core_tx_source_source_ready;
@@ -5322,13 +5642,13 @@ always @(*) begin
             core_tx_source_source_param_ip_address <= core_tx_sink_sink_param_ip_address;
             if ((core_tx_source_source_valid & core_tx_source_source_ready)) begin
                 if (core_tx_source_source_last) begin
-                    udpcore_liteethudp_liteethudptx_next_state <= 1'd0;
+                    liteethudp_liteethudptx_next_state <= 1'd0;
                 end
             end
         end
         default: begin
             if (core_tx_packetizer_source_valid) begin
-                udpcore_liteethudp_liteethudptx_next_state <= 1'd1;
+                liteethudp_liteethudptx_next_state <= 1'd1;
             end
         end
     endcase
@@ -5350,10 +5670,10 @@ assign core_rx_source_source_param_src_port = core_rx_depacketizer_source_param_
 assign core_rx_source_source_param_ip_address = core_rx_sink_sink_param_ip_address;
 assign core_rx_source_source_param_length = (core_rx_depacketizer_source_param_length - 4'd8);
 assign core_rx_depacketizer_header = core_rx_depacketizer_sr;
-assign core_rx_depacketizer_source_param_checksum = {rhs_slice_proxy69[7:0], rhs_slice_proxy68[15:8]};
-assign core_rx_depacketizer_source_param_dst_port = {rhs_slice_proxy71[7:0], rhs_slice_proxy70[15:8]};
-assign core_rx_depacketizer_source_param_length = {rhs_slice_proxy73[7:0], rhs_slice_proxy72[15:8]};
-assign core_rx_depacketizer_source_param_src_port = {rhs_slice_proxy75[7:0], rhs_slice_proxy74[15:8]};
+assign core_rx_depacketizer_source_param_checksum = {core_rx_depacketizer_header[55:48], core_rx_depacketizer_header[63:56]};
+assign core_rx_depacketizer_source_param_dst_port = {core_rx_depacketizer_header[23:16], core_rx_depacketizer_header[31:24]};
+assign core_rx_depacketizer_source_param_length = {core_rx_depacketizer_header[39:32], core_rx_depacketizer_header[47:40]};
+assign core_rx_depacketizer_source_param_src_port = {core_rx_depacketizer_header[7:0], core_rx_depacketizer_header[15:8]};
 assign core_rx_depacketizer_source_payload_error = core_rx_depacketizer_sink_payload_error;
 assign core_rx_depacketizer_sink_last_be = core_rx_depacketizer_sink_last;
 assign core_rx_depacketizer_new_last_be = {core_rx_depacketizer_sink_last_be};
@@ -5367,28 +5687,28 @@ always @(*) begin
     end
 end
 always @(*) begin
-    core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value1 <= 1'd0;
-    core_rx_depacketizer_source_valid <= 1'd0;
-    core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value_ce1 <= 1'd0;
-    core_rx_depacketizer_is_ongoing3 <= 1'd0;
-    core_rx_depacketizer_source_last_a <= 1'd0;
-    core_rx_depacketizer_source_payload_data <= 8'd0;
-    core_rx_depacketizer_source_last_b <= 1'd0;
-    core_rx_depacketizer_source_payload_last_be <= 1'd0;
-    core_rx_depacketizer_source_last_s <= 1'd0;
-    udpcore_liteethudp_liteethudprx_fsm0_next_state <= 2'd0;
     core_rx_depacketizer_count_liteethudp_fsm0_next_value2 <= 3'd0;
     core_rx_depacketizer_count_liteethudp_fsm0_next_value_ce2 <= 1'd0;
-    core_rx_depacketizer_sr_shift <= 1'd0;
+    core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value1 <= 1'd0;
+    core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value_ce1 <= 1'd0;
     core_rx_depacketizer_fsm_from_idle_liteethudp_fsm0_next_value3 <= 1'd0;
     core_rx_depacketizer_fsm_from_idle_liteethudp_fsm0_next_value_ce3 <= 1'd0;
     core_rx_depacketizer_is_ongoing0 <= 1'd0;
     core_rx_depacketizer_is_ongoing1 <= 1'd0;
-    core_rx_depacketizer_sink_ready <= 1'd0;
-    udpcore_liteethudp_liteethudprx_fsm1_next_state <= 1'd0;
     core_rx_depacketizer_is_ongoing2 <= 1'd0;
-    udpcore_liteethudp_liteethudprx_fsm0_next_state <= udpcore_liteethudp_liteethudprx_fsm0_state;
-    case (udpcore_liteethudp_liteethudprx_fsm0_state)
+    core_rx_depacketizer_is_ongoing3 <= 1'd0;
+    core_rx_depacketizer_sink_ready <= 1'd0;
+    core_rx_depacketizer_source_last_a <= 1'd0;
+    core_rx_depacketizer_source_last_b <= 1'd0;
+    core_rx_depacketizer_source_last_s <= 1'd0;
+    core_rx_depacketizer_source_payload_data <= 8'd0;
+    core_rx_depacketizer_source_payload_last_be <= 1'd0;
+    core_rx_depacketizer_source_valid <= 1'd0;
+    core_rx_depacketizer_sr_shift <= 1'd0;
+    liteethudp_liteethudprx_fsm0_next_state <= 2'd0;
+    liteethudp_liteethudprx_fsm1_next_state <= 1'd0;
+    liteethudp_liteethudprx_fsm0_next_state <= liteethudp_liteethudprx_fsm0_state;
+    case (liteethudp_liteethudprx_fsm0_state)
         1'd1: begin
             core_rx_depacketizer_sink_ready <= 1'd1;
             if (core_rx_depacketizer_sink_valid) begin
@@ -5396,7 +5716,7 @@ always @(*) begin
                 core_rx_depacketizer_count_liteethudp_fsm0_next_value_ce2 <= 1'd1;
                 core_rx_depacketizer_sr_shift <= 1'd1;
                 if ((core_rx_depacketizer_count == 3'd7)) begin
-                    udpcore_liteethudp_liteethudprx_fsm0_next_state <= 2'd2;
+                    liteethudp_liteethudprx_fsm0_next_state <= 2'd2;
                     core_rx_depacketizer_count_liteethudp_fsm0_next_value2 <= (core_rx_depacketizer_count + 1'd1);
                     core_rx_depacketizer_count_liteethudp_fsm0_next_value_ce2 <= 1'd1;
                 end
@@ -5409,7 +5729,7 @@ always @(*) begin
             core_rx_depacketizer_source_payload_data <= core_rx_depacketizer_sink_payload_data;
             if ((core_rx_depacketizer_source_valid & core_rx_depacketizer_source_ready)) begin
                 if (core_rx_depacketizer_source_last) begin
-                    udpcore_liteethudp_liteethudprx_fsm0_next_state <= 1'd0;
+                    liteethudp_liteethudprx_fsm0_next_state <= 1'd0;
                 end
             end
             core_rx_depacketizer_is_ongoing0 <= 1'd1;
@@ -5428,22 +5748,22 @@ always @(*) begin
                 core_rx_depacketizer_fsm_from_idle_liteethudp_fsm0_next_value3 <= 1'd1;
                 core_rx_depacketizer_fsm_from_idle_liteethudp_fsm0_next_value_ce3 <= 1'd1;
                 if (1'd0) begin
-                    udpcore_liteethudp_liteethudprx_fsm0_next_state <= 2'd2;
+                    liteethudp_liteethudprx_fsm0_next_state <= 2'd2;
                 end else begin
-                    udpcore_liteethudp_liteethudprx_fsm0_next_state <= 1'd1;
+                    liteethudp_liteethudprx_fsm0_next_state <= 1'd1;
                 end
             end
         end
     endcase
-    udpcore_liteethudp_liteethudprx_fsm1_next_state <= udpcore_liteethudp_liteethudprx_fsm1_state;
-    case (udpcore_liteethudp_liteethudprx_fsm1_state)
+    liteethudp_liteethudprx_fsm1_next_state <= liteethudp_liteethudprx_fsm1_state;
+    case (liteethudp_liteethudprx_fsm1_state)
         1'd1: begin
             core_rx_depacketizer_source_last_b <= 1'd1;
             core_rx_depacketizer_source_last_s <= 1'd1;
             core_rx_depacketizer_source_payload_last_be <= core_rx_depacketizer_delayed_last_be;
             core_rx_depacketizer_sink_ready <= 1'd0;
             if ((core_rx_depacketizer_source_ready & core_rx_depacketizer_source_valid)) begin
-                udpcore_liteethudp_liteethudprx_fsm1_next_state <= 1'd0;
+                liteethudp_liteethudprx_fsm1_next_state <= 1'd0;
             end
         end
         default: begin
@@ -5454,7 +5774,7 @@ always @(*) begin
                 if (((core_rx_depacketizer_source_ready & core_rx_depacketizer_source_valid) | ((~core_rx_depacketizer_was_in_copy) & core_rx_depacketizer_is_in_copy))) begin
                     core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value1 <= core_rx_depacketizer_new_last_be;
                     core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value_ce1 <= 1'd1;
-                    udpcore_liteethudp_liteethudprx_fsm1_next_state <= 1'd1;
+                    liteethudp_liteethudprx_fsm1_next_state <= 1'd1;
                 end
             end else begin
                 if (core_rx_depacketizer_sink_last) begin
@@ -5472,15 +5792,15 @@ always @(*) begin
     endcase
 end
 always @(*) begin
-    core_rx_source_source_payload_last_be <= 1'd0;
-    udpcore_liteethudp_liteethudprx_next_state <= 2'd0;
-    core_rx_depacketizer_source_ready <= 1'd0;
     core_rx_count_liteethudp_next_value <= 16'd0;
     core_rx_count_liteethudp_next_value_ce <= 1'd0;
-    core_rx_source_source_valid <= 1'd0;
+    core_rx_depacketizer_source_ready <= 1'd0;
     core_rx_source_source_last <= 1'd0;
-    udpcore_liteethudp_liteethudprx_next_state <= udpcore_liteethudp_liteethudprx_state;
-    case (udpcore_liteethudp_liteethudprx_state)
+    core_rx_source_source_payload_last_be <= 1'd0;
+    core_rx_source_source_valid <= 1'd0;
+    liteethudp_liteethudprx_next_state <= 2'd0;
+    liteethudp_liteethudprx_next_state <= liteethudp_liteethudprx_state;
+    case (liteethudp_liteethudprx_state)
         1'd1: begin
             core_rx_source_source_valid <= core_rx_depacketizer_source_valid;
             core_rx_depacketizer_source_ready <= core_rx_source_source_ready;
@@ -5521,10 +5841,10 @@ always @(*) begin
                 core_rx_count_liteethudp_next_value <= (core_rx_count + 1'd1);
                 core_rx_count_liteethudp_next_value_ce <= 1'd1;
                 if (core_rx_depacketizer_source_last) begin
-                    udpcore_liteethudp_liteethudprx_next_state <= 1'd0;
+                    liteethudp_liteethudprx_next_state <= 1'd0;
                 end else begin
                     if (core_rx_source_source_last) begin
-                        udpcore_liteethudp_liteethudprx_next_state <= 2'd2;
+                        liteethudp_liteethudprx_next_state <= 2'd2;
                     end
                 end
             end
@@ -5532,359 +5852,410 @@ always @(*) begin
         2'd2: begin
             core_rx_depacketizer_source_ready <= 1'd1;
             if (((core_rx_depacketizer_source_valid & core_rx_depacketizer_source_last) & core_rx_depacketizer_source_ready)) begin
-                udpcore_liteethudp_liteethudprx_next_state <= 1'd0;
+                liteethudp_liteethudprx_next_state <= 1'd0;
             end
         end
         default: begin
             core_rx_count_liteethudp_next_value <= 1'd1;
             core_rx_count_liteethudp_next_value_ce <= 1'd1;
             if (core_rx_depacketizer_source_valid) begin
-                udpcore_liteethudp_liteethudprx_next_state <= 2'd2;
+                liteethudp_liteethudprx_next_state <= 2'd2;
                 if ((core_rx_sink_sink_param_protocol == 5'd17)) begin
-                    udpcore_liteethudp_liteethudprx_next_state <= 1'd1;
+                    liteethudp_liteethudprx_next_state <= 1'd1;
                 end
             end
         end
     endcase
 end
-assign udp_streamer_tx_cdc_sink_valid = udp_streamer_user_port_sink_valid;
-assign udp_streamer_user_port_sink_ready = udp_streamer_tx_cdc_sink_ready;
-assign udp_streamer_tx_cdc_sink_first = udp_streamer_user_port_sink_first;
-assign udp_streamer_tx_cdc_sink_last = udp_streamer_user_port_sink_last;
-assign udp_streamer_tx_cdc_sink_payload_data = udp_streamer_user_port_sink_payload_data;
-assign udp_streamer_tx_cdc_sink_payload_last_be = udp_streamer_user_port_sink_payload_last_be;
-assign udp_streamer_tx_cdc_sink_payload_error = udp_streamer_user_port_sink_payload_error;
-assign udp_streamer_tx_cdc_sink_param_src_port = udp_streamer_user_port_sink_param_src_port;
-assign udp_streamer_tx_cdc_sink_param_dst_port = udp_streamer_user_port_sink_param_dst_port;
-assign udp_streamer_tx_cdc_sink_param_ip_address = udp_streamer_user_port_sink_param_ip_address;
-assign udp_streamer_tx_cdc_sink_param_length = udp_streamer_user_port_sink_param_length;
-assign udp_streamer_tx_converter_sink_valid = udp_streamer_tx_cdc_source_valid;
-assign udp_streamer_tx_cdc_source_ready = udp_streamer_tx_converter_sink_ready;
-assign udp_streamer_tx_converter_sink_first = udp_streamer_tx_cdc_source_first;
-assign udp_streamer_tx_converter_sink_last = udp_streamer_tx_cdc_source_last;
-assign udp_streamer_tx_converter_sink_payload_data = udp_streamer_tx_cdc_source_payload_data;
-assign udp_streamer_tx_converter_sink_payload_last_be = udp_streamer_tx_cdc_source_payload_last_be;
-assign udp_streamer_tx_converter_sink_payload_error = udp_streamer_tx_cdc_source_payload_error;
-assign udp_streamer_tx_converter_sink_param_src_port = udp_streamer_tx_cdc_source_param_src_port;
-assign udp_streamer_tx_converter_sink_param_dst_port = udp_streamer_tx_cdc_source_param_dst_port;
-assign udp_streamer_tx_converter_sink_param_ip_address = udp_streamer_tx_cdc_source_param_ip_address;
-assign udp_streamer_tx_converter_sink_param_length = udp_streamer_tx_cdc_source_param_length;
-assign udp_streamer_internal_port_sink_valid = udp_streamer_tx_converter_source_valid;
-assign udp_streamer_tx_converter_source_ready = udp_streamer_internal_port_sink_ready;
-assign udp_streamer_internal_port_sink_first = udp_streamer_tx_converter_source_first;
-assign udp_streamer_internal_port_sink_last = udp_streamer_tx_converter_source_last;
-assign udp_streamer_internal_port_sink_payload_data = udp_streamer_tx_converter_source_payload_data;
-assign udp_streamer_internal_port_sink_payload_last_be = udp_streamer_tx_converter_source_payload_last_be;
-assign udp_streamer_internal_port_sink_payload_error = udp_streamer_tx_converter_source_payload_error;
-assign udp_streamer_internal_port_sink_param_src_port = udp_streamer_tx_converter_source_param_src_port;
-assign udp_streamer_internal_port_sink_param_dst_port = udp_streamer_tx_converter_source_param_dst_port;
-assign udp_streamer_internal_port_sink_param_ip_address = udp_streamer_tx_converter_source_param_ip_address;
-assign udp_streamer_internal_port_sink_param_length = udp_streamer_tx_converter_source_param_length;
-assign udp_streamer_rx_converter_sink_valid = udp_streamer_internal_port_source_valid;
-assign udp_streamer_internal_port_source_ready = udp_streamer_rx_converter_sink_ready;
-assign udp_streamer_rx_converter_sink_first = udp_streamer_internal_port_source_first;
-assign udp_streamer_rx_converter_sink_last = udp_streamer_internal_port_source_last;
-assign udp_streamer_rx_converter_sink_payload_data = udp_streamer_internal_port_source_payload_data;
-assign udp_streamer_rx_converter_sink_payload_last_be = udp_streamer_internal_port_source_payload_last_be;
-assign udp_streamer_rx_converter_sink_payload_error = udp_streamer_internal_port_source_payload_error;
-assign udp_streamer_rx_converter_sink_param_src_port = udp_streamer_internal_port_source_param_src_port;
-assign udp_streamer_rx_converter_sink_param_dst_port = udp_streamer_internal_port_source_param_dst_port;
-assign udp_streamer_rx_converter_sink_param_ip_address = udp_streamer_internal_port_source_param_ip_address;
-assign udp_streamer_rx_converter_sink_param_length = udp_streamer_internal_port_source_param_length;
-assign udp_streamer_rx_cdc_sink_valid = udp_streamer_rx_converter_source_valid;
-assign udp_streamer_rx_converter_source_ready = udp_streamer_rx_cdc_sink_ready;
-assign udp_streamer_rx_cdc_sink_first = udp_streamer_rx_converter_source_first;
-assign udp_streamer_rx_cdc_sink_last = udp_streamer_rx_converter_source_last;
-assign udp_streamer_rx_cdc_sink_payload_data = udp_streamer_rx_converter_source_payload_data;
-assign udp_streamer_rx_cdc_sink_payload_last_be = udp_streamer_rx_converter_source_payload_last_be;
-assign udp_streamer_rx_cdc_sink_payload_error = udp_streamer_rx_converter_source_payload_error;
-assign udp_streamer_rx_cdc_sink_param_src_port = udp_streamer_rx_converter_source_param_src_port;
-assign udp_streamer_rx_cdc_sink_param_dst_port = udp_streamer_rx_converter_source_param_dst_port;
-assign udp_streamer_rx_cdc_sink_param_ip_address = udp_streamer_rx_converter_source_param_ip_address;
-assign udp_streamer_rx_cdc_sink_param_length = udp_streamer_rx_converter_source_param_length;
-assign udp_streamer_user_port_source_valid = udp_streamer_rx_cdc_source_valid;
-assign udp_streamer_rx_cdc_source_ready = udp_streamer_user_port_source_ready;
-assign udp_streamer_user_port_source_first = udp_streamer_rx_cdc_source_first;
-assign udp_streamer_user_port_source_last = udp_streamer_rx_cdc_source_last;
-assign udp_streamer_user_port_source_payload_data = udp_streamer_rx_cdc_source_payload_data;
-assign udp_streamer_user_port_source_payload_last_be = udp_streamer_rx_cdc_source_payload_last_be;
-assign udp_streamer_user_port_source_payload_error = udp_streamer_rx_cdc_source_payload_error;
-assign udp_streamer_user_port_source_param_src_port = udp_streamer_rx_cdc_source_param_src_port;
-assign udp_streamer_user_port_source_param_dst_port = udp_streamer_rx_cdc_source_param_dst_port;
-assign udp_streamer_user_port_source_param_ip_address = udp_streamer_rx_cdc_source_param_ip_address;
-assign udp_streamer_user_port_source_param_length = udp_streamer_rx_cdc_source_param_length;
+assign udpcore_tx_cdc_sink_valid = udpcore_user_port_sink_valid;
+assign udpcore_user_port_sink_ready = udpcore_tx_cdc_sink_ready;
+assign udpcore_tx_cdc_sink_first = udpcore_user_port_sink_first;
+assign udpcore_tx_cdc_sink_last = udpcore_user_port_sink_last;
+assign udpcore_tx_cdc_sink_payload_data = udpcore_user_port_sink_payload_data;
+assign udpcore_tx_cdc_sink_payload_last_be = udpcore_user_port_sink_payload_last_be;
+assign udpcore_tx_cdc_sink_payload_error = udpcore_user_port_sink_payload_error;
+assign udpcore_tx_cdc_sink_param_src_port = udpcore_user_port_sink_param_src_port;
+assign udpcore_tx_cdc_sink_param_dst_port = udpcore_user_port_sink_param_dst_port;
+assign udpcore_tx_cdc_sink_param_ip_address = udpcore_user_port_sink_param_ip_address;
+assign udpcore_tx_cdc_sink_param_length = udpcore_user_port_sink_param_length;
+assign udpcore_tx_converter_sink_valid = udpcore_tx_cdc_source_valid;
+assign udpcore_tx_cdc_source_ready = udpcore_tx_converter_sink_ready;
+assign udpcore_tx_converter_sink_first = udpcore_tx_cdc_source_first;
+assign udpcore_tx_converter_sink_last = udpcore_tx_cdc_source_last;
+assign udpcore_tx_converter_sink_payload_data = udpcore_tx_cdc_source_payload_data;
+assign udpcore_tx_converter_sink_payload_last_be = udpcore_tx_cdc_source_payload_last_be;
+assign udpcore_tx_converter_sink_payload_error = udpcore_tx_cdc_source_payload_error;
+assign udpcore_tx_converter_sink_param_src_port = udpcore_tx_cdc_source_param_src_port;
+assign udpcore_tx_converter_sink_param_dst_port = udpcore_tx_cdc_source_param_dst_port;
+assign udpcore_tx_converter_sink_param_ip_address = udpcore_tx_cdc_source_param_ip_address;
+assign udpcore_tx_converter_sink_param_length = udpcore_tx_cdc_source_param_length;
+assign udpcore_internal_port_sink_valid = udpcore_tx_converter_source_valid;
+assign udpcore_tx_converter_source_ready = udpcore_internal_port_sink_ready;
+assign udpcore_internal_port_sink_first = udpcore_tx_converter_source_first;
+assign udpcore_internal_port_sink_last = udpcore_tx_converter_source_last;
+assign udpcore_internal_port_sink_payload_data = udpcore_tx_converter_source_payload_data;
+assign udpcore_internal_port_sink_payload_last_be = udpcore_tx_converter_source_payload_last_be;
+assign udpcore_internal_port_sink_payload_error = udpcore_tx_converter_source_payload_error;
+assign udpcore_internal_port_sink_param_src_port = udpcore_tx_converter_source_param_src_port;
+assign udpcore_internal_port_sink_param_dst_port = udpcore_tx_converter_source_param_dst_port;
+assign udpcore_internal_port_sink_param_ip_address = udpcore_tx_converter_source_param_ip_address;
+assign udpcore_internal_port_sink_param_length = udpcore_tx_converter_source_param_length;
+assign udpcore_rx_converter_sink_valid = udpcore_internal_port_source_valid;
+assign udpcore_internal_port_source_ready = udpcore_rx_converter_sink_ready;
+assign udpcore_rx_converter_sink_first = udpcore_internal_port_source_first;
+assign udpcore_rx_converter_sink_last = udpcore_internal_port_source_last;
+assign udpcore_rx_converter_sink_payload_data = udpcore_internal_port_source_payload_data;
+assign udpcore_rx_converter_sink_payload_last_be = udpcore_internal_port_source_payload_last_be;
+assign udpcore_rx_converter_sink_payload_error = udpcore_internal_port_source_payload_error;
+assign udpcore_rx_converter_sink_param_src_port = udpcore_internal_port_source_param_src_port;
+assign udpcore_rx_converter_sink_param_dst_port = udpcore_internal_port_source_param_dst_port;
+assign udpcore_rx_converter_sink_param_ip_address = udpcore_internal_port_source_param_ip_address;
+assign udpcore_rx_converter_sink_param_length = udpcore_internal_port_source_param_length;
+assign udpcore_rx_cdc_sink_valid = udpcore_rx_converter_source_valid;
+assign udpcore_rx_converter_source_ready = udpcore_rx_cdc_sink_ready;
+assign udpcore_rx_cdc_sink_first = udpcore_rx_converter_source_first;
+assign udpcore_rx_cdc_sink_last = udpcore_rx_converter_source_last;
+assign udpcore_rx_cdc_sink_payload_data = udpcore_rx_converter_source_payload_data;
+assign udpcore_rx_cdc_sink_payload_last_be = udpcore_rx_converter_source_payload_last_be;
+assign udpcore_rx_cdc_sink_payload_error = udpcore_rx_converter_source_payload_error;
+assign udpcore_rx_cdc_sink_param_src_port = udpcore_rx_converter_source_param_src_port;
+assign udpcore_rx_cdc_sink_param_dst_port = udpcore_rx_converter_source_param_dst_port;
+assign udpcore_rx_cdc_sink_param_ip_address = udpcore_rx_converter_source_param_ip_address;
+assign udpcore_rx_cdc_sink_param_length = udpcore_rx_converter_source_param_length;
+assign udpcore_user_port_source_valid = udpcore_rx_cdc_source_valid;
+assign udpcore_rx_cdc_source_ready = udpcore_user_port_source_ready;
+assign udpcore_user_port_source_first = udpcore_rx_cdc_source_first;
+assign udpcore_user_port_source_last = udpcore_rx_cdc_source_last;
+assign udpcore_user_port_source_payload_data = udpcore_rx_cdc_source_payload_data;
+assign udpcore_user_port_source_payload_last_be = udpcore_rx_cdc_source_payload_last_be;
+assign udpcore_user_port_source_payload_error = udpcore_rx_cdc_source_payload_error;
+assign udpcore_user_port_source_param_src_port = udpcore_rx_cdc_source_param_src_port;
+assign udpcore_user_port_source_param_dst_port = udpcore_rx_cdc_source_param_dst_port;
+assign udpcore_user_port_source_param_ip_address = udpcore_rx_cdc_source_param_ip_address;
+assign udpcore_user_port_source_param_length = udpcore_rx_cdc_source_param_length;
 always @(*) begin
-    udpcore_liteethudp_sel <= 1'd0;
-    if ((core_crossbar_sink_param_dst_port == 11'd2000)) begin
-        udpcore_liteethudp_sel <= 1'd1;
+    liteethudp_sel0 <= 1'd0;
+    if ((core_crossbar_sink_param_dst_port == udp0_udp_port)) begin
+        liteethudp_sel0 <= 1'd1;
     end
 end
-assign udp_streamer_tx_cdc_source_valid = udp_streamer_tx_cdc_sink_valid;
-assign udp_streamer_tx_cdc_sink_ready = udp_streamer_tx_cdc_source_ready;
-assign udp_streamer_tx_cdc_source_first = udp_streamer_tx_cdc_sink_first;
-assign udp_streamer_tx_cdc_source_last = udp_streamer_tx_cdc_sink_last;
-assign udp_streamer_tx_cdc_source_payload_data = udp_streamer_tx_cdc_sink_payload_data;
-assign udp_streamer_tx_cdc_source_payload_last_be = udp_streamer_tx_cdc_sink_payload_last_be;
-assign udp_streamer_tx_cdc_source_payload_error = udp_streamer_tx_cdc_sink_payload_error;
-assign udp_streamer_tx_cdc_source_param_src_port = udp_streamer_tx_cdc_sink_param_src_port;
-assign udp_streamer_tx_cdc_source_param_dst_port = udp_streamer_tx_cdc_sink_param_dst_port;
-assign udp_streamer_tx_cdc_source_param_ip_address = udp_streamer_tx_cdc_sink_param_ip_address;
-assign udp_streamer_tx_cdc_source_param_length = udp_streamer_tx_cdc_sink_param_length;
-assign udp_streamer_tx_converter_converter_sink_valid = udp_streamer_tx_converter_sink_valid;
-assign udp_streamer_tx_converter_converter_sink_first = udp_streamer_tx_converter_sink_first;
-assign udp_streamer_tx_converter_converter_sink_last = udp_streamer_tx_converter_sink_last;
-assign udp_streamer_tx_converter_sink_ready = udp_streamer_tx_converter_converter_sink_ready;
-assign udp_streamer_tx_converter_converter_sink_payload_data = {udp_streamer_tx_converter_sink_payload_error, udp_streamer_tx_converter_sink_payload_last_be, udp_streamer_tx_converter_sink_payload_data};
-assign udp_streamer_tx_converter_source_valid = udp_streamer_tx_converter_source_source_valid;
-assign udp_streamer_tx_converter_source_first = udp_streamer_tx_converter_source_source_first;
-assign udp_streamer_tx_converter_source_last = udp_streamer_tx_converter_source_source_last;
-assign udp_streamer_tx_converter_source_source_ready = udp_streamer_tx_converter_source_ready;
-assign {udp_streamer_tx_converter_source_payload_error, udp_streamer_tx_converter_source_payload_last_be, udp_streamer_tx_converter_source_payload_data} = udp_streamer_tx_converter_source_source_payload_data;
-assign udp_streamer_tx_converter_source_param_src_port = udp_streamer_tx_converter_sink_param_src_port;
-assign udp_streamer_tx_converter_source_param_dst_port = udp_streamer_tx_converter_sink_param_dst_port;
-assign udp_streamer_tx_converter_source_param_ip_address = udp_streamer_tx_converter_sink_param_ip_address;
-assign udp_streamer_tx_converter_source_param_length = udp_streamer_tx_converter_sink_param_length;
-assign udp_streamer_tx_converter_source_source_valid = udp_streamer_tx_converter_converter_source_valid;
-assign udp_streamer_tx_converter_converter_source_ready = udp_streamer_tx_converter_source_source_ready;
-assign udp_streamer_tx_converter_source_source_first = udp_streamer_tx_converter_converter_source_first;
-assign udp_streamer_tx_converter_source_source_last = udp_streamer_tx_converter_converter_source_last;
-assign udp_streamer_tx_converter_source_source_payload_data = udp_streamer_tx_converter_converter_source_payload_data;
-assign udp_streamer_tx_converter_converter_source_valid = udp_streamer_tx_converter_converter_sink_valid;
-assign udp_streamer_tx_converter_converter_sink_ready = udp_streamer_tx_converter_converter_source_ready;
-assign udp_streamer_tx_converter_converter_source_first = udp_streamer_tx_converter_converter_sink_first;
-assign udp_streamer_tx_converter_converter_source_last = udp_streamer_tx_converter_converter_sink_last;
-assign udp_streamer_tx_converter_converter_source_payload_data = udp_streamer_tx_converter_converter_sink_payload_data;
-assign udp_streamer_tx_converter_converter_source_payload_valid_token_count = 1'd1;
-assign udp_streamer_rx_converter_converter_sink_valid = udp_streamer_rx_converter_sink_valid;
-assign udp_streamer_rx_converter_converter_sink_first = udp_streamer_rx_converter_sink_first;
-assign udp_streamer_rx_converter_converter_sink_last = udp_streamer_rx_converter_sink_last;
-assign udp_streamer_rx_converter_sink_ready = udp_streamer_rx_converter_converter_sink_ready;
-assign udp_streamer_rx_converter_converter_sink_payload_data = {udp_streamer_rx_converter_sink_payload_error, udp_streamer_rx_converter_sink_payload_last_be, udp_streamer_rx_converter_sink_payload_data};
-assign udp_streamer_rx_converter_source_valid = udp_streamer_rx_converter_source_source_valid;
-assign udp_streamer_rx_converter_source_first = udp_streamer_rx_converter_source_source_first;
-assign udp_streamer_rx_converter_source_last = udp_streamer_rx_converter_source_source_last;
-assign udp_streamer_rx_converter_source_source_ready = udp_streamer_rx_converter_source_ready;
-assign {udp_streamer_rx_converter_source_payload_error, udp_streamer_rx_converter_source_payload_last_be, udp_streamer_rx_converter_source_payload_data} = udp_streamer_rx_converter_source_source_payload_data;
-assign udp_streamer_rx_converter_source_param_src_port = udp_streamer_rx_converter_sink_param_src_port;
-assign udp_streamer_rx_converter_source_param_dst_port = udp_streamer_rx_converter_sink_param_dst_port;
-assign udp_streamer_rx_converter_source_param_ip_address = udp_streamer_rx_converter_sink_param_ip_address;
-assign udp_streamer_rx_converter_source_param_length = udp_streamer_rx_converter_sink_param_length;
-assign udp_streamer_rx_converter_source_source_valid = udp_streamer_rx_converter_converter_source_valid;
-assign udp_streamer_rx_converter_converter_source_ready = udp_streamer_rx_converter_source_source_ready;
-assign udp_streamer_rx_converter_source_source_first = udp_streamer_rx_converter_converter_source_first;
-assign udp_streamer_rx_converter_source_source_last = udp_streamer_rx_converter_converter_source_last;
-assign udp_streamer_rx_converter_source_source_payload_data = udp_streamer_rx_converter_converter_source_payload_data;
-assign udp_streamer_rx_converter_converter_source_valid = udp_streamer_rx_converter_converter_sink_valid;
-assign udp_streamer_rx_converter_converter_sink_ready = udp_streamer_rx_converter_converter_source_ready;
-assign udp_streamer_rx_converter_converter_source_first = udp_streamer_rx_converter_converter_sink_first;
-assign udp_streamer_rx_converter_converter_source_last = udp_streamer_rx_converter_converter_sink_last;
-assign udp_streamer_rx_converter_converter_source_payload_data = udp_streamer_rx_converter_converter_sink_payload_data;
-assign udp_streamer_rx_converter_converter_source_payload_valid_token_count = 1'd1;
-assign udp_streamer_rx_cdc_source_valid = udp_streamer_rx_cdc_sink_valid;
-assign udp_streamer_rx_cdc_sink_ready = udp_streamer_rx_cdc_source_ready;
-assign udp_streamer_rx_cdc_source_first = udp_streamer_rx_cdc_sink_first;
-assign udp_streamer_rx_cdc_source_last = udp_streamer_rx_cdc_sink_last;
-assign udp_streamer_rx_cdc_source_payload_data = udp_streamer_rx_cdc_sink_payload_data;
-assign udp_streamer_rx_cdc_source_payload_last_be = udp_streamer_rx_cdc_sink_payload_last_be;
-assign udp_streamer_rx_cdc_source_payload_error = udp_streamer_rx_cdc_sink_payload_error;
-assign udp_streamer_rx_cdc_source_param_src_port = udp_streamer_rx_cdc_sink_param_src_port;
-assign udp_streamer_rx_cdc_source_param_dst_port = udp_streamer_rx_cdc_sink_param_dst_port;
-assign udp_streamer_rx_cdc_source_param_ip_address = udp_streamer_rx_cdc_sink_param_ip_address;
-assign udp_streamer_rx_cdc_source_param_length = udp_streamer_rx_cdc_sink_param_length;
-assign core_crossbar_source_valid = udp_streamer_internal_port_sink_valid;
-assign udp_streamer_internal_port_sink_ready = core_crossbar_source_ready;
-assign core_crossbar_source_first = udp_streamer_internal_port_sink_first;
-assign core_crossbar_source_last = udp_streamer_internal_port_sink_last;
-assign core_crossbar_source_payload_data = udp_streamer_internal_port_sink_payload_data;
-assign core_crossbar_source_payload_last_be = udp_streamer_internal_port_sink_payload_last_be;
-assign core_crossbar_source_payload_error = udp_streamer_internal_port_sink_payload_error;
-assign core_crossbar_source_param_src_port = udp_streamer_internal_port_sink_param_src_port;
-assign core_crossbar_source_param_dst_port = udp_streamer_internal_port_sink_param_dst_port;
-assign core_crossbar_source_param_ip_address = udp_streamer_internal_port_sink_param_ip_address;
-assign core_crossbar_source_param_length = udp_streamer_internal_port_sink_param_length;
-assign udp_streamer_internal_port_source_valid = core_crossbar_sink_valid;
-assign core_crossbar_sink_ready = udp_streamer_internal_port_source_ready;
-assign udp_streamer_internal_port_source_first = core_crossbar_sink_first;
-assign udp_streamer_internal_port_source_last = core_crossbar_sink_last;
-assign udp_streamer_internal_port_source_payload_data = core_crossbar_sink_payload_data;
-assign udp_streamer_internal_port_source_payload_last_be = core_crossbar_sink_payload_last_be;
-assign udp_streamer_internal_port_source_payload_error = core_crossbar_sink_payload_error;
-assign udp_streamer_internal_port_source_param_src_port = core_crossbar_sink_param_src_port;
-assign udp_streamer_internal_port_source_param_dst_port = core_crossbar_sink_param_dst_port;
-assign udp_streamer_internal_port_source_param_ip_address = core_crossbar_sink_param_ip_address;
-assign udp_streamer_internal_port_source_param_length = core_crossbar_sink_param_length;
-assign udp_streamer_user_port_sink_valid = udp_streamer_tx_source_source_valid;
-assign udp_streamer_tx_source_source_ready = udp_streamer_user_port_sink_ready;
-assign udp_streamer_user_port_sink_first = udp_streamer_tx_source_source_first;
-assign udp_streamer_user_port_sink_last = udp_streamer_tx_source_source_last;
-assign udp_streamer_user_port_sink_payload_data = udp_streamer_tx_source_source_payload_data;
-assign udp_streamer_user_port_sink_payload_last_be = udp_streamer_tx_source_source_payload_last_be;
-assign udp_streamer_user_port_sink_payload_error = udp_streamer_tx_source_source_payload_error;
-assign udp_streamer_user_port_sink_param_src_port = udp_streamer_tx_source_source_param_src_port;
-assign udp_streamer_user_port_sink_param_dst_port = udp_streamer_tx_source_source_param_dst_port;
-assign udp_streamer_user_port_sink_param_ip_address = udp_streamer_tx_source_source_param_ip_address;
-assign udp_streamer_user_port_sink_param_length = udp_streamer_tx_source_source_param_length;
-assign udp_streamer_rx_sink_sink_valid = udp_streamer_user_port_source_valid;
-assign udp_streamer_user_port_source_ready = udp_streamer_rx_sink_sink_ready;
-assign udp_streamer_rx_sink_sink_first = udp_streamer_user_port_source_first;
-assign udp_streamer_rx_sink_sink_last = udp_streamer_user_port_source_last;
-assign udp_streamer_rx_sink_sink_payload_data = udp_streamer_user_port_source_payload_data;
-assign udp_streamer_rx_sink_sink_payload_last_be = udp_streamer_user_port_source_payload_last_be;
-assign udp_streamer_rx_sink_sink_payload_error = udp_streamer_user_port_source_payload_error;
-assign udp_streamer_rx_sink_sink_param_src_port = udp_streamer_user_port_source_param_src_port;
-assign udp_streamer_rx_sink_sink_param_dst_port = udp_streamer_user_port_source_param_dst_port;
-assign udp_streamer_rx_sink_sink_param_ip_address = udp_streamer_user_port_source_param_ip_address;
-assign udp_streamer_rx_sink_sink_param_length = udp_streamer_user_port_source_param_length;
-assign udp_streamer_tx_fifo_sink_valid = udp_streamer_tx_sink_sink_valid;
-assign udp_streamer_tx_sink_sink_ready = udp_streamer_tx_fifo_sink_ready;
-assign udp_streamer_tx_fifo_sink_first = udp_streamer_tx_sink_sink_first;
-assign udp_streamer_tx_fifo_sink_last = udp_streamer_tx_sink_sink_last;
-assign udp_streamer_tx_fifo_sink_payload_data = udp_streamer_tx_sink_sink_payload_data;
-assign udp_streamer_tx_fifo_syncfifo_din = {udp_streamer_tx_fifo_fifo_in_last, udp_streamer_tx_fifo_fifo_in_first, udp_streamer_tx_fifo_fifo_in_payload_data};
-assign {udp_streamer_tx_fifo_fifo_out_last, udp_streamer_tx_fifo_fifo_out_first, udp_streamer_tx_fifo_fifo_out_payload_data} = udp_streamer_tx_fifo_syncfifo_dout;
-assign udp_streamer_tx_fifo_sink_ready = udp_streamer_tx_fifo_syncfifo_writable;
-assign udp_streamer_tx_fifo_syncfifo_we = udp_streamer_tx_fifo_sink_valid;
-assign udp_streamer_tx_fifo_fifo_in_first = udp_streamer_tx_fifo_sink_first;
-assign udp_streamer_tx_fifo_fifo_in_last = udp_streamer_tx_fifo_sink_last;
-assign udp_streamer_tx_fifo_fifo_in_payload_data = udp_streamer_tx_fifo_sink_payload_data;
-assign udp_streamer_tx_fifo_source_valid = udp_streamer_tx_fifo_readable;
-assign udp_streamer_tx_fifo_source_first = udp_streamer_tx_fifo_fifo_out_first;
-assign udp_streamer_tx_fifo_source_last = udp_streamer_tx_fifo_fifo_out_last;
-assign udp_streamer_tx_fifo_source_payload_data = udp_streamer_tx_fifo_fifo_out_payload_data;
-assign udp_streamer_tx_fifo_re = udp_streamer_tx_fifo_source_ready;
-assign udp_streamer_tx_fifo_syncfifo_re = (udp_streamer_tx_fifo_syncfifo_readable & ((~udp_streamer_tx_fifo_readable) | udp_streamer_tx_fifo_re));
-assign udp_streamer_tx_fifo_level1 = (udp_streamer_tx_fifo_level0 + udp_streamer_tx_fifo_readable);
+assign udpcore_tx_cdc_source_valid = udpcore_tx_cdc_sink_valid;
+assign udpcore_tx_cdc_sink_ready = udpcore_tx_cdc_source_ready;
+assign udpcore_tx_cdc_source_first = udpcore_tx_cdc_sink_first;
+assign udpcore_tx_cdc_source_last = udpcore_tx_cdc_sink_last;
+assign udpcore_tx_cdc_source_payload_data = udpcore_tx_cdc_sink_payload_data;
+assign udpcore_tx_cdc_source_payload_last_be = udpcore_tx_cdc_sink_payload_last_be;
+assign udpcore_tx_cdc_source_payload_error = udpcore_tx_cdc_sink_payload_error;
+assign udpcore_tx_cdc_source_param_src_port = udpcore_tx_cdc_sink_param_src_port;
+assign udpcore_tx_cdc_source_param_dst_port = udpcore_tx_cdc_sink_param_dst_port;
+assign udpcore_tx_cdc_source_param_ip_address = udpcore_tx_cdc_sink_param_ip_address;
+assign udpcore_tx_cdc_source_param_length = udpcore_tx_cdc_sink_param_length;
+assign udpcore_tx_converter_converter_sink_valid = udpcore_tx_converter_sink_valid;
+assign udpcore_tx_converter_converter_sink_first = udpcore_tx_converter_sink_first;
+assign udpcore_tx_converter_converter_sink_last = udpcore_tx_converter_sink_last;
+assign udpcore_tx_converter_sink_ready = udpcore_tx_converter_converter_sink_ready;
+assign udpcore_tx_converter_converter_sink_payload_data = {udpcore_tx_converter_sink_payload_error, udpcore_tx_converter_sink_payload_last_be, udpcore_tx_converter_sink_payload_data};
+assign udpcore_tx_converter_source_valid = udpcore_tx_converter_source_source_valid;
+assign udpcore_tx_converter_source_first = udpcore_tx_converter_source_source_first;
+assign udpcore_tx_converter_source_last = udpcore_tx_converter_source_source_last;
+assign udpcore_tx_converter_source_source_ready = udpcore_tx_converter_source_ready;
+assign {udpcore_tx_converter_source_payload_error, udpcore_tx_converter_source_payload_last_be, udpcore_tx_converter_source_payload_data} = udpcore_tx_converter_source_source_payload_data;
+assign udpcore_tx_converter_source_param_src_port = udpcore_tx_converter_sink_param_src_port;
+assign udpcore_tx_converter_source_param_dst_port = udpcore_tx_converter_sink_param_dst_port;
+assign udpcore_tx_converter_source_param_ip_address = udpcore_tx_converter_sink_param_ip_address;
+assign udpcore_tx_converter_source_param_length = udpcore_tx_converter_sink_param_length;
+assign udpcore_tx_converter_source_source_valid = udpcore_tx_converter_converter_source_valid;
+assign udpcore_tx_converter_converter_source_ready = udpcore_tx_converter_source_source_ready;
+assign udpcore_tx_converter_source_source_first = udpcore_tx_converter_converter_source_first;
+assign udpcore_tx_converter_source_source_last = udpcore_tx_converter_converter_source_last;
+assign udpcore_tx_converter_source_source_payload_data = udpcore_tx_converter_converter_source_payload_data;
+assign udpcore_tx_converter_converter_source_valid = udpcore_tx_converter_converter_sink_valid;
+assign udpcore_tx_converter_converter_sink_ready = udpcore_tx_converter_converter_source_ready;
+assign udpcore_tx_converter_converter_source_first = udpcore_tx_converter_converter_sink_first;
+assign udpcore_tx_converter_converter_source_last = udpcore_tx_converter_converter_sink_last;
+assign udpcore_tx_converter_converter_source_payload_data = udpcore_tx_converter_converter_sink_payload_data;
+assign udpcore_tx_converter_converter_source_payload_valid_token_count = 1'd1;
+assign udpcore_rx_converter_converter_sink_valid = udpcore_rx_converter_sink_valid;
+assign udpcore_rx_converter_converter_sink_first = udpcore_rx_converter_sink_first;
+assign udpcore_rx_converter_converter_sink_last = udpcore_rx_converter_sink_last;
+assign udpcore_rx_converter_sink_ready = udpcore_rx_converter_converter_sink_ready;
+assign udpcore_rx_converter_converter_sink_payload_data = {udpcore_rx_converter_sink_payload_error, udpcore_rx_converter_sink_payload_last_be, udpcore_rx_converter_sink_payload_data};
+assign udpcore_rx_converter_source_valid = udpcore_rx_converter_source_source_valid;
+assign udpcore_rx_converter_source_first = udpcore_rx_converter_source_source_first;
+assign udpcore_rx_converter_source_last = udpcore_rx_converter_source_source_last;
+assign udpcore_rx_converter_source_source_ready = udpcore_rx_converter_source_ready;
+assign {udpcore_rx_converter_source_payload_error, udpcore_rx_converter_source_payload_last_be, udpcore_rx_converter_source_payload_data} = udpcore_rx_converter_source_source_payload_data;
+assign udpcore_rx_converter_source_param_src_port = udpcore_rx_converter_sink_param_src_port;
+assign udpcore_rx_converter_source_param_dst_port = udpcore_rx_converter_sink_param_dst_port;
+assign udpcore_rx_converter_source_param_ip_address = udpcore_rx_converter_sink_param_ip_address;
+assign udpcore_rx_converter_source_param_length = udpcore_rx_converter_sink_param_length;
+assign udpcore_rx_converter_source_source_valid = udpcore_rx_converter_converter_source_valid;
+assign udpcore_rx_converter_converter_source_ready = udpcore_rx_converter_source_source_ready;
+assign udpcore_rx_converter_source_source_first = udpcore_rx_converter_converter_source_first;
+assign udpcore_rx_converter_source_source_last = udpcore_rx_converter_converter_source_last;
+assign udpcore_rx_converter_source_source_payload_data = udpcore_rx_converter_converter_source_payload_data;
+assign udpcore_rx_converter_converter_source_valid = udpcore_rx_converter_converter_sink_valid;
+assign udpcore_rx_converter_converter_sink_ready = udpcore_rx_converter_converter_source_ready;
+assign udpcore_rx_converter_converter_source_first = udpcore_rx_converter_converter_sink_first;
+assign udpcore_rx_converter_converter_source_last = udpcore_rx_converter_converter_sink_last;
+assign udpcore_rx_converter_converter_source_payload_data = udpcore_rx_converter_converter_sink_payload_data;
+assign udpcore_rx_converter_converter_source_payload_valid_token_count = 1'd1;
+assign udpcore_rx_cdc_source_valid = udpcore_rx_cdc_sink_valid;
+assign udpcore_rx_cdc_sink_ready = udpcore_rx_cdc_source_ready;
+assign udpcore_rx_cdc_source_first = udpcore_rx_cdc_sink_first;
+assign udpcore_rx_cdc_source_last = udpcore_rx_cdc_sink_last;
+assign udpcore_rx_cdc_source_payload_data = udpcore_rx_cdc_sink_payload_data;
+assign udpcore_rx_cdc_source_payload_last_be = udpcore_rx_cdc_sink_payload_last_be;
+assign udpcore_rx_cdc_source_payload_error = udpcore_rx_cdc_sink_payload_error;
+assign udpcore_rx_cdc_source_param_src_port = udpcore_rx_cdc_sink_param_src_port;
+assign udpcore_rx_cdc_source_param_dst_port = udpcore_rx_cdc_sink_param_dst_port;
+assign udpcore_rx_cdc_source_param_ip_address = udpcore_rx_cdc_sink_param_ip_address;
+assign udpcore_rx_cdc_source_param_length = udpcore_rx_cdc_sink_param_length;
+assign core_crossbar_source_valid = udpcore_internal_port_sink_valid;
+assign udpcore_internal_port_sink_ready = core_crossbar_source_ready;
+assign core_crossbar_source_first = udpcore_internal_port_sink_first;
+assign core_crossbar_source_last = udpcore_internal_port_sink_last;
+assign core_crossbar_source_payload_data = udpcore_internal_port_sink_payload_data;
+assign core_crossbar_source_payload_last_be = udpcore_internal_port_sink_payload_last_be;
+assign core_crossbar_source_payload_error = udpcore_internal_port_sink_payload_error;
+assign core_crossbar_source_param_src_port = udpcore_internal_port_sink_param_src_port;
+assign core_crossbar_source_param_dst_port = udpcore_internal_port_sink_param_dst_port;
+assign core_crossbar_source_param_ip_address = udpcore_internal_port_sink_param_ip_address;
+assign core_crossbar_source_param_length = udpcore_internal_port_sink_param_length;
 always @(*) begin
-    udp_streamer_tx_fifo_wrport_adr <= 6'd0;
-    if (udp_streamer_tx_fifo_replace) begin
-        udp_streamer_tx_fifo_wrport_adr <= (udp_streamer_tx_fifo_produce - 1'd1);
+    liteethudp_sel1 <= 1'd0;
+    if ((~liteethudp_sel_locked)) begin
+        liteethudp_sel1 <= liteethudp_sel0;
     end else begin
-        udp_streamer_tx_fifo_wrport_adr <= udp_streamer_tx_fifo_produce;
+        liteethudp_sel1 <= liteethudp_sel_ongoing;
     end
 end
-assign udp_streamer_tx_fifo_wrport_dat_w = udp_streamer_tx_fifo_syncfifo_din;
-assign udp_streamer_tx_fifo_wrport_we = (udp_streamer_tx_fifo_syncfifo_we & (udp_streamer_tx_fifo_syncfifo_writable | udp_streamer_tx_fifo_replace));
-assign udp_streamer_tx_fifo_do_read = (udp_streamer_tx_fifo_syncfifo_readable & udp_streamer_tx_fifo_syncfifo_re);
-assign udp_streamer_tx_fifo_rdport_adr = udp_streamer_tx_fifo_consume;
-assign udp_streamer_tx_fifo_syncfifo_dout = udp_streamer_tx_fifo_rdport_dat_r;
-assign udp_streamer_tx_fifo_rdport_re = udp_streamer_tx_fifo_do_read;
-assign udp_streamer_tx_fifo_syncfifo_writable = (udp_streamer_tx_fifo_level0 != 7'd64);
-assign udp_streamer_tx_fifo_syncfifo_readable = (udp_streamer_tx_fifo_level0 != 1'd0);
 always @(*) begin
-    udp_streamer_tx_counter_next_value1 <= 7'd0;
-    udp_streamer_tx_source_source_valid <= 1'd0;
-    udp_streamer_tx_counter_next_value_ce1 <= 1'd0;
-    udp_streamer_tx_source_source_last <= 1'd0;
-    udp_streamer_tx_source_source_payload_data <= 8'd0;
-    udp_streamer_tx_source_source_payload_last_be <= 1'd0;
-    udp_streamer_tx_fifo_source_ready <= 1'd0;
-    udp_streamer_tx_source_source_param_src_port <= 16'd0;
-    udp_streamer_tx_source_source_param_dst_port <= 16'd0;
-    udp_streamer_tx_source_source_param_ip_address <= 32'd0;
-    udp_streamer_tx_source_source_param_length <= 16'd0;
-    udpcore_liteethudpstreamer_next_state <= 1'd0;
-    udp_streamer_tx_level_next_value0 <= 7'd0;
-    udp_streamer_tx_level_next_value_ce0 <= 1'd0;
-    udpcore_liteethudpstreamer_next_state <= udpcore_liteethudpstreamer_state;
-    case (udpcore_liteethudpstreamer_state)
+    core_crossbar_sink_ready <= 1'd0;
+    udpcore_internal_port_source_first <= 1'd0;
+    udpcore_internal_port_source_last <= 1'd0;
+    udpcore_internal_port_source_param_dst_port <= 16'd0;
+    udpcore_internal_port_source_param_ip_address <= 32'd0;
+    udpcore_internal_port_source_param_length <= 16'd0;
+    udpcore_internal_port_source_param_src_port <= 16'd0;
+    udpcore_internal_port_source_payload_data <= 8'd0;
+    udpcore_internal_port_source_payload_error <= 1'd0;
+    udpcore_internal_port_source_payload_last_be <= 1'd0;
+    udpcore_internal_port_source_valid <= 1'd0;
+    case (liteethudp_sel1)
         1'd1: begin
-            udp_streamer_tx_source_source_valid <= 1'd1;
-            udp_streamer_tx_source_source_last <= (udp_streamer_tx_counter == (udp_streamer_tx_level - 1'd1));
-            udp_streamer_tx_source_source_param_src_port <= 11'd2000;
-            udp_streamer_tx_source_source_param_dst_port <= 11'd2000;
-            udp_streamer_tx_source_source_param_ip_address <= 32'd3232281092;
-            udp_streamer_tx_source_source_param_length <= (udp_streamer_tx_level * 1'd1);
-            udp_streamer_tx_source_source_payload_data <= udp_streamer_tx_fifo_source_payload_data;
-            udp_streamer_tx_source_source_payload_last_be <= 1'd1;
-            if (udp_streamer_tx_source_source_ready) begin
-                udp_streamer_tx_fifo_source_ready <= 1'd1;
-                udp_streamer_tx_counter_next_value1 <= (udp_streamer_tx_counter + 1'd1);
-                udp_streamer_tx_counter_next_value_ce1 <= 1'd1;
-                if (udp_streamer_tx_source_source_last) begin
-                    udpcore_liteethudpstreamer_next_state <= 1'd0;
+            udpcore_internal_port_source_valid <= core_crossbar_sink_valid;
+            core_crossbar_sink_ready <= udpcore_internal_port_source_ready;
+            udpcore_internal_port_source_first <= core_crossbar_sink_first;
+            udpcore_internal_port_source_last <= core_crossbar_sink_last;
+            udpcore_internal_port_source_payload_data <= core_crossbar_sink_payload_data;
+            udpcore_internal_port_source_payload_last_be <= core_crossbar_sink_payload_last_be;
+            udpcore_internal_port_source_payload_error <= core_crossbar_sink_payload_error;
+            udpcore_internal_port_source_param_src_port <= core_crossbar_sink_param_src_port;
+            udpcore_internal_port_source_param_dst_port <= core_crossbar_sink_param_dst_port;
+            udpcore_internal_port_source_param_ip_address <= core_crossbar_sink_param_ip_address;
+            udpcore_internal_port_source_param_length <= core_crossbar_sink_param_length;
+        end
+        default: begin
+            core_crossbar_sink_ready <= 1'd1;
+        end
+    endcase
+end
+assign liteethudp_last = ((core_crossbar_sink_valid & core_crossbar_sink_last) & core_crossbar_sink_ready);
+assign liteethudp_ongoing0 = ((core_crossbar_sink_valid | liteethudp_ongoing1) & (~liteethudp_last));
+assign udpcore_user_port_sink_valid = udpcore_tx_source_source_valid;
+assign udpcore_tx_source_source_ready = udpcore_user_port_sink_ready;
+assign udpcore_user_port_sink_first = udpcore_tx_source_source_first;
+assign udpcore_user_port_sink_last = udpcore_tx_source_source_last;
+assign udpcore_user_port_sink_payload_data = udpcore_tx_source_source_payload_data;
+assign udpcore_user_port_sink_payload_last_be = udpcore_tx_source_source_payload_last_be;
+assign udpcore_user_port_sink_payload_error = udpcore_tx_source_source_payload_error;
+assign udpcore_user_port_sink_param_src_port = udpcore_tx_source_source_param_src_port;
+assign udpcore_user_port_sink_param_dst_port = udpcore_tx_source_source_param_dst_port;
+assign udpcore_user_port_sink_param_ip_address = udpcore_tx_source_source_param_ip_address;
+assign udpcore_user_port_sink_param_length = udpcore_tx_source_source_param_length;
+assign udpcore_rx_sink_sink_valid = udpcore_user_port_source_valid;
+assign udpcore_user_port_source_ready = udpcore_rx_sink_sink_ready;
+assign udpcore_rx_sink_sink_first = udpcore_user_port_source_first;
+assign udpcore_rx_sink_sink_last = udpcore_user_port_source_last;
+assign udpcore_rx_sink_sink_payload_data = udpcore_user_port_source_payload_data;
+assign udpcore_rx_sink_sink_payload_last_be = udpcore_user_port_source_payload_last_be;
+assign udpcore_rx_sink_sink_payload_error = udpcore_user_port_source_payload_error;
+assign udpcore_rx_sink_sink_param_src_port = udpcore_user_port_source_param_src_port;
+assign udpcore_rx_sink_sink_param_dst_port = udpcore_user_port_source_param_dst_port;
+assign udpcore_rx_sink_sink_param_ip_address = udpcore_user_port_source_param_ip_address;
+assign udpcore_rx_sink_sink_param_length = udpcore_user_port_source_param_length;
+assign udpcore_tx_fifo_sink_valid = udpcore_tx_sink_sink_valid;
+assign udpcore_tx_sink_sink_ready = udpcore_tx_fifo_sink_ready;
+assign udpcore_tx_fifo_sink_first = udpcore_tx_sink_sink_first;
+assign udpcore_tx_fifo_sink_last = udpcore_tx_sink_sink_last;
+assign udpcore_tx_fifo_sink_payload_data = udpcore_tx_sink_sink_payload_data;
+assign udpcore_tx_reset = ((~udpcore_tx_enable) & (~udpcore_tx_source_source_valid));
+assign udpcore_tx_fifo_syncfifo_din = {udpcore_tx_fifo_fifo_in_last, udpcore_tx_fifo_fifo_in_first, udpcore_tx_fifo_fifo_in_payload_data};
+assign {udpcore_tx_fifo_fifo_out_last, udpcore_tx_fifo_fifo_out_first, udpcore_tx_fifo_fifo_out_payload_data} = udpcore_tx_fifo_syncfifo_dout;
+assign udpcore_tx_fifo_sink_ready = udpcore_tx_fifo_syncfifo_writable;
+assign udpcore_tx_fifo_syncfifo_we = udpcore_tx_fifo_sink_valid;
+assign udpcore_tx_fifo_fifo_in_first = udpcore_tx_fifo_sink_first;
+assign udpcore_tx_fifo_fifo_in_last = udpcore_tx_fifo_sink_last;
+assign udpcore_tx_fifo_fifo_in_payload_data = udpcore_tx_fifo_sink_payload_data;
+assign udpcore_tx_fifo_source_valid = udpcore_tx_fifo_readable;
+assign udpcore_tx_fifo_source_first = udpcore_tx_fifo_fifo_out_first;
+assign udpcore_tx_fifo_source_last = udpcore_tx_fifo_fifo_out_last;
+assign udpcore_tx_fifo_source_payload_data = udpcore_tx_fifo_fifo_out_payload_data;
+assign udpcore_tx_fifo_re = udpcore_tx_fifo_source_ready;
+assign udpcore_tx_fifo_syncfifo_re = (udpcore_tx_fifo_syncfifo_readable & ((~udpcore_tx_fifo_readable) | udpcore_tx_fifo_re));
+assign udpcore_tx_fifo_level1 = (udpcore_tx_fifo_level0 + udpcore_tx_fifo_readable);
+always @(*) begin
+    udpcore_tx_fifo_wrport_adr <= 6'd0;
+    if (udpcore_tx_fifo_replace) begin
+        udpcore_tx_fifo_wrport_adr <= (udpcore_tx_fifo_produce - 1'd1);
+    end else begin
+        udpcore_tx_fifo_wrport_adr <= udpcore_tx_fifo_produce;
+    end
+end
+assign udpcore_tx_fifo_wrport_dat_w = udpcore_tx_fifo_syncfifo_din;
+assign udpcore_tx_fifo_wrport_we = (udpcore_tx_fifo_syncfifo_we & (udpcore_tx_fifo_syncfifo_writable | udpcore_tx_fifo_replace));
+assign udpcore_tx_fifo_do_read = (udpcore_tx_fifo_syncfifo_readable & udpcore_tx_fifo_syncfifo_re);
+assign udpcore_tx_fifo_rdport_adr = udpcore_tx_fifo_consume;
+assign udpcore_tx_fifo_syncfifo_dout = udpcore_tx_fifo_rdport_dat_r;
+assign udpcore_tx_fifo_rdport_re = udpcore_tx_fifo_do_read;
+assign udpcore_tx_fifo_syncfifo_writable = (udpcore_tx_fifo_level0 != 7'd64);
+assign udpcore_tx_fifo_syncfifo_readable = (udpcore_tx_fifo_level0 != 1'd0);
+always @(*) begin
+    liteethudpstreamer_next_state <= 1'd0;
+    udpcore_tx_counter_next_value0 <= 7'd0;
+    udpcore_tx_counter_next_value_ce0 <= 1'd0;
+    udpcore_tx_fifo_source_ready <= 1'd0;
+    udpcore_tx_ip_address1_next_value1 <= 32'd0;
+    udpcore_tx_ip_address1_next_value_ce1 <= 1'd0;
+    udpcore_tx_level_next_value3 <= 7'd0;
+    udpcore_tx_level_next_value_ce3 <= 1'd0;
+    udpcore_tx_source_source_last <= 1'd0;
+    udpcore_tx_source_source_param_dst_port <= 16'd0;
+    udpcore_tx_source_source_param_ip_address <= 32'd0;
+    udpcore_tx_source_source_param_length <= 16'd0;
+    udpcore_tx_source_source_param_src_port <= 16'd0;
+    udpcore_tx_source_source_payload_data <= 8'd0;
+    udpcore_tx_source_source_payload_last_be <= 1'd0;
+    udpcore_tx_source_source_valid <= 1'd0;
+    udpcore_tx_udp_port1_next_value2 <= 16'd0;
+    udpcore_tx_udp_port1_next_value_ce2 <= 1'd0;
+    liteethudpstreamer_next_state <= liteethudpstreamer_state;
+    case (liteethudpstreamer_state)
+        1'd1: begin
+            udpcore_tx_source_source_valid <= 1'd1;
+            udpcore_tx_source_source_last <= (udpcore_tx_counter == (udpcore_tx_level - 1'd1));
+            udpcore_tx_source_source_param_src_port <= udpcore_tx_udp_port1;
+            udpcore_tx_source_source_param_dst_port <= udpcore_tx_udp_port1;
+            udpcore_tx_source_source_param_ip_address <= udpcore_tx_ip_address1;
+            udpcore_tx_source_source_param_length <= (udpcore_tx_level * 1'd1);
+            udpcore_tx_source_source_payload_data <= udpcore_tx_fifo_source_payload_data;
+            if (udpcore_tx_source_source_last) begin
+                udpcore_tx_source_source_payload_last_be <= 1'd1;
+            end
+            if (udpcore_tx_source_source_ready) begin
+                udpcore_tx_fifo_source_ready <= 1'd1;
+                udpcore_tx_counter_next_value0 <= (udpcore_tx_counter + 1'd1);
+                udpcore_tx_counter_next_value_ce0 <= 1'd1;
+                if (udpcore_tx_source_source_last) begin
+                    liteethudpstreamer_next_state <= 1'd0;
                 end
             end
         end
         default: begin
-            if (((udp_streamer_tx_fifo_source_valid & udp_streamer_tx_fifo_source_last) | (~udp_streamer_tx_fifo_sink_ready))) begin
-                udp_streamer_tx_level_next_value0 <= udp_streamer_tx_fifo_level1;
-                udp_streamer_tx_level_next_value_ce0 <= 1'd1;
-                udp_streamer_tx_counter_next_value1 <= 1'd0;
-                udp_streamer_tx_counter_next_value_ce1 <= 1'd1;
-                udpcore_liteethudpstreamer_next_state <= 1'd1;
+            udpcore_tx_counter_next_value0 <= 1'd0;
+            udpcore_tx_counter_next_value_ce0 <= 1'd1;
+            udpcore_tx_ip_address1_next_value1 <= udpcore_tx_ip_address0;
+            udpcore_tx_ip_address1_next_value_ce1 <= 1'd1;
+            udpcore_tx_udp_port1_next_value2 <= udpcore_tx_udp_port0;
+            udpcore_tx_udp_port1_next_value_ce2 <= 1'd1;
+            if (((udpcore_tx_fifo_sink_valid & udpcore_tx_fifo_sink_ready) & udpcore_tx_fifo_sink_last)) begin
+                udpcore_tx_level_next_value3 <= (udpcore_tx_fifo_level1 + 1'd1);
+                udpcore_tx_level_next_value_ce3 <= 1'd1;
+                liteethudpstreamer_next_state <= 1'd1;
+            end
+            if ((~udpcore_tx_fifo_sink_ready)) begin
+                udpcore_tx_level_next_value3 <= 7'd64;
+                udpcore_tx_level_next_value_ce3 <= 1'd1;
+                liteethudpstreamer_next_state <= 1'd1;
             end
         end
     endcase
 end
 always @(*) begin
-    udp_streamer_rx_valid <= 1'd1;
-    if ((udp_streamer_rx_sink_sink_param_dst_port != 11'd2000)) begin
-        udp_streamer_rx_valid <= 1'd0;
+    udpcore_rx_valid <= 1'd1;
+    if ((~udpcore_rx_enable)) begin
+        udpcore_rx_valid <= 1'd0;
+    end
+    if ((udpcore_rx_sink_sink_param_dst_port != udpcore_rx_udp_port)) begin
+        udpcore_rx_valid <= 1'd0;
     end
 end
-assign udp_streamer_rx_fifo_sink_last = udp_streamer_rx_sink_sink_last;
-assign udp_streamer_rx_fifo_sink_payload_data = udp_streamer_rx_sink_sink_payload_data;
-assign udp_streamer_rx_fifo_sink_payload_error = udp_streamer_rx_sink_sink_payload_error;
-assign udp_streamer_rx_fifo_sink_valid = (udp_streamer_rx_sink_sink_valid & udp_streamer_rx_valid);
-assign udp_streamer_rx_sink_sink_ready = (udp_streamer_rx_fifo_sink_ready | (~udp_streamer_rx_valid));
-assign udp_streamer_rx_source_source_valid = udp_streamer_rx_fifo_source_valid;
-assign udp_streamer_rx_fifo_source_ready = udp_streamer_rx_source_source_ready;
-assign udp_streamer_rx_source_source_first = udp_streamer_rx_fifo_source_first;
-assign udp_streamer_rx_source_source_last = udp_streamer_rx_fifo_source_last;
-assign udp_streamer_rx_source_source_payload_data = udp_streamer_rx_fifo_source_payload_data;
-assign udp_streamer_rx_source_source_payload_error = udp_streamer_rx_fifo_source_payload_error;
-assign udp_streamer_rx_fifo_syncfifo_din = {udp_streamer_rx_fifo_fifo_in_last, udp_streamer_rx_fifo_fifo_in_first, udp_streamer_rx_fifo_fifo_in_payload_error, udp_streamer_rx_fifo_fifo_in_payload_data};
-assign {udp_streamer_rx_fifo_fifo_out_last, udp_streamer_rx_fifo_fifo_out_first, udp_streamer_rx_fifo_fifo_out_payload_error, udp_streamer_rx_fifo_fifo_out_payload_data} = udp_streamer_rx_fifo_syncfifo_dout;
-assign udp_streamer_rx_fifo_sink_ready = udp_streamer_rx_fifo_syncfifo_writable;
-assign udp_streamer_rx_fifo_syncfifo_we = udp_streamer_rx_fifo_sink_valid;
-assign udp_streamer_rx_fifo_fifo_in_first = udp_streamer_rx_fifo_sink_first;
-assign udp_streamer_rx_fifo_fifo_in_last = udp_streamer_rx_fifo_sink_last;
-assign udp_streamer_rx_fifo_fifo_in_payload_data = udp_streamer_rx_fifo_sink_payload_data;
-assign udp_streamer_rx_fifo_fifo_in_payload_error = udp_streamer_rx_fifo_sink_payload_error;
-assign udp_streamer_rx_fifo_source_valid = udp_streamer_rx_fifo_readable;
-assign udp_streamer_rx_fifo_source_first = udp_streamer_rx_fifo_fifo_out_first;
-assign udp_streamer_rx_fifo_source_last = udp_streamer_rx_fifo_fifo_out_last;
-assign udp_streamer_rx_fifo_source_payload_data = udp_streamer_rx_fifo_fifo_out_payload_data;
-assign udp_streamer_rx_fifo_source_payload_error = udp_streamer_rx_fifo_fifo_out_payload_error;
-assign udp_streamer_rx_fifo_re = udp_streamer_rx_fifo_source_ready;
-assign udp_streamer_rx_fifo_syncfifo_re = (udp_streamer_rx_fifo_syncfifo_readable & ((~udp_streamer_rx_fifo_readable) | udp_streamer_rx_fifo_re));
-assign udp_streamer_rx_fifo_level1 = (udp_streamer_rx_fifo_level0 + udp_streamer_rx_fifo_readable);
+assign udpcore_rx_fifo_sink_last = udpcore_rx_sink_sink_last;
+assign udpcore_rx_fifo_sink_payload_data = udpcore_rx_sink_sink_payload_data;
+assign udpcore_rx_fifo_sink_payload_error = udpcore_rx_sink_sink_payload_error;
+assign udpcore_rx_fifo_sink_valid = (udpcore_rx_sink_sink_valid & udpcore_rx_valid);
+assign udpcore_rx_sink_sink_ready = (udpcore_rx_fifo_sink_ready | (~udpcore_rx_valid));
+assign udpcore_rx_source_source_valid = udpcore_rx_fifo_source_valid;
+assign udpcore_rx_fifo_source_ready = udpcore_rx_source_source_ready;
+assign udpcore_rx_source_source_first = udpcore_rx_fifo_source_first;
+assign udpcore_rx_source_source_last = udpcore_rx_fifo_source_last;
+assign udpcore_rx_source_source_payload_data = udpcore_rx_fifo_source_payload_data;
+assign udpcore_rx_source_source_payload_error = udpcore_rx_fifo_source_payload_error;
+assign udpcore_rx_fifo_syncfifo_din = {udpcore_rx_fifo_fifo_in_last, udpcore_rx_fifo_fifo_in_first, udpcore_rx_fifo_fifo_in_payload_error, udpcore_rx_fifo_fifo_in_payload_data};
+assign {udpcore_rx_fifo_fifo_out_last, udpcore_rx_fifo_fifo_out_first, udpcore_rx_fifo_fifo_out_payload_error, udpcore_rx_fifo_fifo_out_payload_data} = udpcore_rx_fifo_syncfifo_dout;
+assign udpcore_rx_fifo_sink_ready = udpcore_rx_fifo_syncfifo_writable;
+assign udpcore_rx_fifo_syncfifo_we = udpcore_rx_fifo_sink_valid;
+assign udpcore_rx_fifo_fifo_in_first = udpcore_rx_fifo_sink_first;
+assign udpcore_rx_fifo_fifo_in_last = udpcore_rx_fifo_sink_last;
+assign udpcore_rx_fifo_fifo_in_payload_data = udpcore_rx_fifo_sink_payload_data;
+assign udpcore_rx_fifo_fifo_in_payload_error = udpcore_rx_fifo_sink_payload_error;
+assign udpcore_rx_fifo_source_valid = udpcore_rx_fifo_readable;
+assign udpcore_rx_fifo_source_first = udpcore_rx_fifo_fifo_out_first;
+assign udpcore_rx_fifo_source_last = udpcore_rx_fifo_fifo_out_last;
+assign udpcore_rx_fifo_source_payload_data = udpcore_rx_fifo_fifo_out_payload_data;
+assign udpcore_rx_fifo_source_payload_error = udpcore_rx_fifo_fifo_out_payload_error;
+assign udpcore_rx_fifo_re = udpcore_rx_fifo_source_ready;
+assign udpcore_rx_fifo_syncfifo_re = (udpcore_rx_fifo_syncfifo_readable & ((~udpcore_rx_fifo_readable) | udpcore_rx_fifo_re));
+assign udpcore_rx_fifo_level1 = (udpcore_rx_fifo_level0 + udpcore_rx_fifo_readable);
 always @(*) begin
-    udp_streamer_rx_fifo_wrport_adr <= 6'd0;
-    if (udp_streamer_rx_fifo_replace) begin
-        udp_streamer_rx_fifo_wrport_adr <= (udp_streamer_rx_fifo_produce - 1'd1);
+    udpcore_rx_fifo_wrport_adr <= 6'd0;
+    if (udpcore_rx_fifo_replace) begin
+        udpcore_rx_fifo_wrport_adr <= (udpcore_rx_fifo_produce - 1'd1);
     end else begin
-        udp_streamer_rx_fifo_wrport_adr <= udp_streamer_rx_fifo_produce;
+        udpcore_rx_fifo_wrport_adr <= udpcore_rx_fifo_produce;
     end
 end
-assign udp_streamer_rx_fifo_wrport_dat_w = udp_streamer_rx_fifo_syncfifo_din;
-assign udp_streamer_rx_fifo_wrport_we = (udp_streamer_rx_fifo_syncfifo_we & (udp_streamer_rx_fifo_syncfifo_writable | udp_streamer_rx_fifo_replace));
-assign udp_streamer_rx_fifo_do_read = (udp_streamer_rx_fifo_syncfifo_readable & udp_streamer_rx_fifo_syncfifo_re);
-assign udp_streamer_rx_fifo_rdport_adr = udp_streamer_rx_fifo_consume;
-assign udp_streamer_rx_fifo_syncfifo_dout = udp_streamer_rx_fifo_rdport_dat_r;
-assign udp_streamer_rx_fifo_rdport_re = udp_streamer_rx_fifo_do_read;
-assign udp_streamer_rx_fifo_syncfifo_writable = (udp_streamer_rx_fifo_level0 != 7'd64);
-assign udp_streamer_rx_fifo_syncfifo_readable = (udp_streamer_rx_fifo_level0 != 1'd0);
+assign udpcore_rx_fifo_wrport_dat_w = udpcore_rx_fifo_syncfifo_din;
+assign udpcore_rx_fifo_wrport_we = (udpcore_rx_fifo_syncfifo_we & (udpcore_rx_fifo_syncfifo_writable | udpcore_rx_fifo_replace));
+assign udpcore_rx_fifo_do_read = (udpcore_rx_fifo_syncfifo_readable & udpcore_rx_fifo_syncfifo_re);
+assign udpcore_rx_fifo_rdport_adr = udpcore_rx_fifo_consume;
+assign udpcore_rx_fifo_syncfifo_dout = udpcore_rx_fifo_rdport_dat_r;
+assign udpcore_rx_fifo_rdport_re = udpcore_rx_fifo_do_read;
+assign udpcore_rx_fifo_syncfifo_writable = (udpcore_rx_fifo_level0 != 7'd64);
+assign udpcore_rx_fifo_syncfifo_readable = (udpcore_rx_fifo_level0 != 1'd0);
 always @(*) begin
-    udpcore_wishbone_dat_r <= 32'd0;
-    udpcore_wishbone2csr_next_state <= 1'd0;
-    udpcore_dat_w <= 32'd0;
-    udpcore_adr <= 14'd0;
-    udpcore_we <= 1'd0;
-    udpcore_wishbone_ack <= 1'd0;
-    udpcore_wishbone2csr_next_state <= udpcore_wishbone2csr_state;
-    case (udpcore_wishbone2csr_state)
+    interface0_ack <= 1'd0;
+    interface0_dat_r <= 32'd0;
+    interface1_adr <= 14'd0;
+    interface1_dat_w <= 32'd0;
+    interface1_re <= 1'd0;
+    interface1_we <= 1'd0;
+    wishbone2csr_next_state <= 1'd0;
+    wishbone2csr_next_state <= wishbone2csr_state;
+    case (wishbone2csr_state)
         1'd1: begin
-            udpcore_wishbone_ack <= 1'd1;
-            udpcore_wishbone_dat_r <= udpcore_dat_r;
-            udpcore_wishbone2csr_next_state <= 1'd0;
+            interface0_ack <= 1'd1;
+            interface0_dat_r <= interface1_dat_r;
+            wishbone2csr_next_state <= 1'd0;
         end
         default: begin
-            udpcore_dat_w <= udpcore_wishbone_dat_w;
-            if ((udpcore_wishbone_cyc & udpcore_wishbone_stb)) begin
-                udpcore_adr <= udpcore_wishbone_adr;
-                udpcore_we <= (udpcore_wishbone_we & (udpcore_wishbone_sel != 1'd0));
-                udpcore_wishbone2csr_next_state <= 1'd1;
+            interface1_dat_w <= interface0_dat_w;
+            if ((interface0_cyc & interface0_stb)) begin
+                interface1_adr <= interface0_adr;
+                interface1_re <= ((~interface0_we) & (interface0_sel != 1'd0));
+                interface1_we <= (interface0_we & (interface0_sel != 1'd0));
+                wishbone2csr_next_state <= 1'd1;
             end
         end
     endcase
@@ -5892,31 +6263,42 @@ end
 assign csrbank0_sel = (interface0_bank_bus_adr[13:9] == 1'd0);
 assign csrbank0_reset0_r = interface0_bank_bus_dat_w[1:0];
 always @(*) begin
-    csrbank0_reset0_we <= 1'd0;
     csrbank0_reset0_re <= 1'd0;
+    csrbank0_reset0_we <= 1'd0;
     if ((csrbank0_sel & (interface0_bank_bus_adr[8:0] == 1'd0))) begin
         csrbank0_reset0_re <= interface0_bank_bus_we;
-        csrbank0_reset0_we <= (~interface0_bank_bus_we);
+        csrbank0_reset0_we <= interface0_bank_bus_re;
     end
 end
-assign csrbank0_scratch0_r = interface0_bank_bus_dat_w[31:0];
+assign csrbank0_scratch0_r = interface0_bank_bus_dat_w;
 always @(*) begin
-    csrbank0_scratch0_we <= 1'd0;
     csrbank0_scratch0_re <= 1'd0;
+    csrbank0_scratch0_we <= 1'd0;
     if ((csrbank0_sel & (interface0_bank_bus_adr[8:0] == 1'd1))) begin
         csrbank0_scratch0_re <= interface0_bank_bus_we;
-        csrbank0_scratch0_we <= (~interface0_bank_bus_we);
+        csrbank0_scratch0_we <= interface0_bank_bus_re;
     end
 end
-assign csrbank0_bus_errors_r = interface0_bank_bus_dat_w[31:0];
+assign csrbank0_bus_errors_r = interface0_bank_bus_dat_w;
 always @(*) begin
     csrbank0_bus_errors_re <= 1'd0;
     csrbank0_bus_errors_we <= 1'd0;
     if ((csrbank0_sel & (interface0_bank_bus_adr[8:0] == 2'd2))) begin
         csrbank0_bus_errors_re <= interface0_bank_bus_we;
-        csrbank0_bus_errors_we <= (~interface0_bank_bus_we);
+        csrbank0_bus_errors_we <= interface0_bank_bus_re;
     end
 end
+always @(*) begin
+    udpcore_udpcore_soc_rst <= 1'd0;
+    if (udpcore_udpcore_reset_re) begin
+        udpcore_udpcore_soc_rst <= udpcore_udpcore_reset_storage[0];
+    end
+end
+assign udpcore_udpcore_cpu_rst = udpcore_udpcore_reset_storage[1];
+assign csrbank0_reset0_w = udpcore_udpcore_reset_storage;
+assign csrbank0_scratch0_w = udpcore_udpcore_scratch_storage;
+assign csrbank0_bus_errors_w = udpcore_udpcore_bus_errors_status;
+assign udpcore_udpcore_bus_errors_we = csrbank0_bus_errors_we;
 assign csrbank1_sel = (interface1_bank_bus_adr[13:9] == 1'd1);
 assign csrbank1_crg_reset0_r = interface1_bank_bus_dat_w[0];
 always @(*) begin
@@ -5924,25 +6306,25 @@ always @(*) begin
     csrbank1_crg_reset0_we <= 1'd0;
     if ((csrbank1_sel & (interface1_bank_bus_adr[8:0] == 1'd0))) begin
         csrbank1_crg_reset0_re <= interface1_bank_bus_we;
-        csrbank1_crg_reset0_we <= (~interface1_bank_bus_we);
+        csrbank1_crg_reset0_we <= interface1_bank_bus_re;
     end
 end
-assign csrbank1_rx_inband_status_r = interface1_bank_bus_dat_w[2:0];
+assign csrbank1_rx_inband_status_r = interface1_bank_bus_dat_w[3:0];
 always @(*) begin
     csrbank1_rx_inband_status_re <= 1'd0;
     csrbank1_rx_inband_status_we <= 1'd0;
     if ((csrbank1_sel & (interface1_bank_bus_adr[8:0] == 1'd1))) begin
         csrbank1_rx_inband_status_re <= interface1_bank_bus_we;
-        csrbank1_rx_inband_status_we <= (~interface1_bank_bus_we);
+        csrbank1_rx_inband_status_we <= interface1_bank_bus_re;
     end
 end
 assign csrbank1_mdio_w0_r = interface1_bank_bus_dat_w[2:0];
 always @(*) begin
-    csrbank1_mdio_w0_we <= 1'd0;
     csrbank1_mdio_w0_re <= 1'd0;
+    csrbank1_mdio_w0_we <= 1'd0;
     if ((csrbank1_sel & (interface1_bank_bus_adr[8:0] == 2'd2))) begin
         csrbank1_mdio_w0_re <= interface1_bank_bus_we;
-        csrbank1_mdio_w0_we <= (~interface1_bank_bus_we);
+        csrbank1_mdio_w0_we <= interface1_bank_bus_re;
     end
 end
 assign csrbank1_mdio_r_r = interface1_bank_bus_dat_w[0];
@@ -5951,183 +6333,45 @@ always @(*) begin
     csrbank1_mdio_r_we <= 1'd0;
     if ((csrbank1_sel & (interface1_bank_bus_adr[8:0] == 2'd3))) begin
         csrbank1_mdio_r_re <= interface1_bank_bus_we;
-        csrbank1_mdio_r_we <= (~interface1_bank_bus_we);
+        csrbank1_mdio_r_we <= interface1_bank_bus_re;
     end
 end
-assign csrbank1_crg_reset0_w = ethphy_reset_storage;
+assign csrbank1_crg_reset0_w = udpcore_ethphy_reset_storage;
 always @(*) begin
-    ethphy_status <= 3'd0;
-    ethphy_status[0] <= ethphy_link_status;
-    ethphy_status[1] <= ethphy_clock_speed;
-    ethphy_status[2] <= ethphy_duplex_status;
+    udpcore_ethphy_status <= 4'd0;
+    udpcore_ethphy_status[0] <= udpcore_ethphy_link_status;
+    udpcore_ethphy_status[2:1] <= udpcore_ethphy_clock_speed;
+    udpcore_ethphy_status[3] <= udpcore_ethphy_duplex_status;
 end
-assign csrbank1_rx_inband_status_w = ethphy_status[2:0];
-assign ethphy_we = csrbank1_rx_inband_status_we;
-assign ethphy_mdc = ethphy__w_storage[0];
-assign ethphy_oe = ethphy__w_storage[1];
-assign ethphy_w = ethphy__w_storage[2];
-assign csrbank1_mdio_w0_w = ethphy__w_storage[2:0];
-assign csrbank1_mdio_r_w = ethphy__r_status;
-assign ethphy__r_we = csrbank1_mdio_r_we;
-assign csr_interconnect_adr = udpcore_adr;
-assign csr_interconnect_we = udpcore_we;
-assign csr_interconnect_dat_w = udpcore_dat_w;
-assign udpcore_dat_r = csr_interconnect_dat_r;
-assign interface0_bank_bus_adr = csr_interconnect_adr;
-assign interface1_bank_bus_adr = csr_interconnect_adr;
-assign interface0_bank_bus_we = csr_interconnect_we;
-assign interface1_bank_bus_we = csr_interconnect_we;
-assign interface0_bank_bus_dat_w = csr_interconnect_dat_w;
-assign interface1_bank_bus_dat_w = csr_interconnect_dat_w;
-assign csr_interconnect_dat_r = (interface0_bank_bus_dat_r | interface1_bank_bus_dat_r);
-assign t_slice_proxy0 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy1 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy2 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy3 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy4 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy5 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy6 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy7 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy8 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy9 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy10 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy11 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy12 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy13 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy14 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy15 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy16 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy17 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy18 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy19 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy20 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy21 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy22 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy23 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy24 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy25 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy26 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy27 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy28 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy29 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy30 = (~core_mac_core_tx_crc_next);
-assign t_slice_proxy31 = (~core_mac_core_tx_crc_next);
-assign cases_slice_proxy = {core_mac_core_tx_crc_value, core_mac_core_tx_crc_sink_payload_data[7:0]};
-assign t_slice_proxy32 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy33 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy34 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy35 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy36 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy37 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy38 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy39 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy40 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy41 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy42 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy43 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy44 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy45 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy46 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy47 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy48 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy49 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy50 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy51 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy52 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy53 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy54 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy55 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy56 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy57 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy58 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy59 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy60 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy61 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy62 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign t_slice_proxy63 = (~core_mac_core_liteethmaccrc32checker_crc_next);
-assign rhs_slice_proxy0 = core_mac_depacketizer_header[111:96];
-assign rhs_slice_proxy1 = core_mac_depacketizer_header[111:96];
-assign rhs_slice_proxy2 = core_mac_depacketizer_header[95:48];
-assign rhs_slice_proxy3 = core_mac_depacketizer_header[95:48];
-assign rhs_slice_proxy4 = core_mac_depacketizer_header[95:48];
-assign rhs_slice_proxy5 = core_mac_depacketizer_header[95:48];
-assign rhs_slice_proxy6 = core_mac_depacketizer_header[95:48];
-assign rhs_slice_proxy7 = core_mac_depacketizer_header[95:48];
-assign rhs_slice_proxy8 = core_mac_depacketizer_header[47:0];
-assign rhs_slice_proxy9 = core_mac_depacketizer_header[47:0];
-assign rhs_slice_proxy10 = core_mac_depacketizer_header[47:0];
-assign rhs_slice_proxy11 = core_mac_depacketizer_header[47:0];
-assign rhs_slice_proxy12 = core_mac_depacketizer_header[47:0];
-assign rhs_slice_proxy13 = core_mac_depacketizer_header[47:0];
-assign rhs_slice_proxy14 = core_arp_rx_depacketizer_header[39:32];
-assign rhs_slice_proxy15 = core_arp_rx_depacketizer_header[15:0];
-assign rhs_slice_proxy16 = core_arp_rx_depacketizer_header[15:0];
-assign rhs_slice_proxy17 = core_arp_rx_depacketizer_header[63:48];
-assign rhs_slice_proxy18 = core_arp_rx_depacketizer_header[63:48];
-assign rhs_slice_proxy19 = core_arp_rx_depacketizer_header[31:16];
-assign rhs_slice_proxy20 = core_arp_rx_depacketizer_header[31:16];
-assign rhs_slice_proxy21 = core_arp_rx_depacketizer_header[47:40];
-assign rhs_slice_proxy22 = core_arp_rx_depacketizer_header[143:112];
-assign rhs_slice_proxy23 = core_arp_rx_depacketizer_header[143:112];
-assign rhs_slice_proxy24 = core_arp_rx_depacketizer_header[143:112];
-assign rhs_slice_proxy25 = core_arp_rx_depacketizer_header[143:112];
-assign rhs_slice_proxy26 = core_arp_rx_depacketizer_header[111:64];
-assign rhs_slice_proxy27 = core_arp_rx_depacketizer_header[111:64];
-assign rhs_slice_proxy28 = core_arp_rx_depacketizer_header[111:64];
-assign rhs_slice_proxy29 = core_arp_rx_depacketizer_header[111:64];
-assign rhs_slice_proxy30 = core_arp_rx_depacketizer_header[111:64];
-assign rhs_slice_proxy31 = core_arp_rx_depacketizer_header[111:64];
-assign rhs_slice_proxy32 = core_arp_rx_depacketizer_header[223:192];
-assign rhs_slice_proxy33 = core_arp_rx_depacketizer_header[223:192];
-assign rhs_slice_proxy34 = core_arp_rx_depacketizer_header[223:192];
-assign rhs_slice_proxy35 = core_arp_rx_depacketizer_header[223:192];
-assign rhs_slice_proxy36 = core_arp_rx_depacketizer_header[191:144];
-assign rhs_slice_proxy37 = core_arp_rx_depacketizer_header[191:144];
-assign rhs_slice_proxy38 = core_arp_rx_depacketizer_header[191:144];
-assign rhs_slice_proxy39 = core_arp_rx_depacketizer_header[191:144];
-assign rhs_slice_proxy40 = core_arp_rx_depacketizer_header[191:144];
-assign rhs_slice_proxy41 = core_arp_rx_depacketizer_header[191:144];
-assign rhs_slice_proxy42 = core_ip_rx_depacketizer_header[95:80];
-assign rhs_slice_proxy43 = core_ip_rx_depacketizer_header[95:80];
-assign rhs_slice_proxy44 = core_ip_rx_depacketizer_header[47:32];
-assign rhs_slice_proxy45 = core_ip_rx_depacketizer_header[47:32];
-assign rhs_slice_proxy46 = core_ip_rx_depacketizer_header[3:0];
-assign rhs_slice_proxy47 = core_ip_rx_depacketizer_header[79:72];
-assign rhs_slice_proxy48 = core_ip_rx_depacketizer_header[127:96];
-assign rhs_slice_proxy49 = core_ip_rx_depacketizer_header[127:96];
-assign rhs_slice_proxy50 = core_ip_rx_depacketizer_header[127:96];
-assign rhs_slice_proxy51 = core_ip_rx_depacketizer_header[127:96];
-assign rhs_slice_proxy52 = core_ip_rx_depacketizer_header[159:128];
-assign rhs_slice_proxy53 = core_ip_rx_depacketizer_header[159:128];
-assign rhs_slice_proxy54 = core_ip_rx_depacketizer_header[159:128];
-assign rhs_slice_proxy55 = core_ip_rx_depacketizer_header[159:128];
-assign rhs_slice_proxy56 = core_ip_rx_depacketizer_header[31:16];
-assign rhs_slice_proxy57 = core_ip_rx_depacketizer_header[31:16];
-assign rhs_slice_proxy58 = core_ip_rx_depacketizer_header[71:64];
-assign rhs_slice_proxy59 = core_ip_rx_depacketizer_header[7:4];
-assign rhs_slice_proxy60 = core_icmp_rx_depacketizer_header[31:16];
-assign rhs_slice_proxy61 = core_icmp_rx_depacketizer_header[31:16];
-assign rhs_slice_proxy62 = core_icmp_rx_depacketizer_header[15:8];
-assign rhs_slice_proxy63 = core_icmp_rx_depacketizer_header[7:0];
-assign rhs_slice_proxy64 = core_icmp_rx_depacketizer_header[63:32];
-assign rhs_slice_proxy65 = core_icmp_rx_depacketizer_header[63:32];
-assign rhs_slice_proxy66 = core_icmp_rx_depacketizer_header[63:32];
-assign rhs_slice_proxy67 = core_icmp_rx_depacketizer_header[63:32];
-assign rhs_slice_proxy68 = core_rx_depacketizer_header[63:48];
-assign rhs_slice_proxy69 = core_rx_depacketizer_header[63:48];
-assign rhs_slice_proxy70 = core_rx_depacketizer_header[31:16];
-assign rhs_slice_proxy71 = core_rx_depacketizer_header[31:16];
-assign rhs_slice_proxy72 = core_rx_depacketizer_header[47:32];
-assign rhs_slice_proxy73 = core_rx_depacketizer_header[47:32];
-assign rhs_slice_proxy74 = core_rx_depacketizer_header[15:0];
-assign rhs_slice_proxy75 = core_rx_depacketizer_header[15:0];
+assign csrbank1_rx_inband_status_w = udpcore_ethphy_status;
+assign udpcore_ethphy_we = csrbank1_rx_inband_status_we;
+assign udpcore_ethphy_mdc = udpcore_ethphy__w_storage[0];
+assign udpcore_ethphy_oe = udpcore_ethphy__w_storage[1];
+assign udpcore_ethphy_w = udpcore_ethphy__w_storage[2];
+assign csrbank1_mdio_w0_w = udpcore_ethphy__w_storage;
+assign csrbank1_mdio_r_w = udpcore_ethphy__r_status;
+assign udpcore_ethphy__r_we = csrbank1_mdio_r_we;
+assign adr = interface1_adr;
+assign re = interface1_re;
+assign we = interface1_we;
+assign dat_w = interface1_dat_w;
+assign interface1_dat_r = dat_r;
+assign interface0_bank_bus_adr = adr;
+assign interface1_bank_bus_adr = adr;
+assign interface0_bank_bus_re = re;
+assign interface1_bank_bus_re = re;
+assign interface0_bank_bus_we = we;
+assign interface1_bank_bus_we = we;
+assign interface0_bank_bus_dat_w = dat_w;
+assign interface1_bank_bus_dat_w = dat_w;
+assign dat_r = (interface0_bank_bus_dat_r | interface1_bank_bus_dat_r);
 always @(*) begin
-    ethphy__r_status <= 1'd0;
-    ethphy__r_status <= ethphy_r;
-    ethphy__r_status <= multiregimpl0_regs1;
+    udpcore_ethphy__r_status <= 1'd0;
+    udpcore_ethphy__r_status <= udpcore_ethphy_r;
+    udpcore_ethphy__r_status <= multiregimpl0_regs1;
 end
-assign core_mac_core_tx_cdc_cdc_produce_rdomain = multiregimpl1_regs1;
-assign core_mac_core_tx_cdc_cdc_consume_wdomain = multiregimpl2_regs1;
+assign core_mac_core_txdatapath_cdc_produce_rdomain = multiregimpl1_regs1;
+assign core_mac_core_txdatapath_cdc_consume_wdomain = multiregimpl2_regs1;
 assign core_mac_core_pulsesynchronizer0_toggle_o = multiregimpl3_regs1;
 assign core_mac_core_pulsesynchronizer1_toggle_o = multiregimpl4_regs1;
 assign core_mac_core_cdc_produce_rdomain = multiregimpl5_regs1;
@@ -6139,22 +6383,22 @@ assign core_mac_core_cdc_consume_wdomain = multiregimpl6_regs1;
 //------------------------------------------------------------------------------
 
 always @(posedge eth_rx_clk) begin
-    ethphy_rx_ctl_reg <= ethphy_rx_ctl;
-    ethphy_rx_data_reg <= ethphy_rx_data;
-    ethphy_rx_ctl_reg_d <= ethphy_rx_ctl_reg;
-    ethphy_source_valid <= ethphy_rx_ctl_reg[0];
-    ethphy_source_payload_data <= ethphy_rx_data_reg;
-    if ((ethphy_rx_ctl == 1'd0)) begin
-        ethphy_link_status <= ethphy_rx_data[0];
-        ethphy_clock_speed <= ethphy_rx_data[2:1];
-        ethphy_duplex_status <= ethphy_rx_data[3];
+    udpcore_ethphy_rx_ctl_reg <= udpcore_ethphy_rx_ctl;
+    udpcore_ethphy_rx_data_reg <= udpcore_ethphy_rx_data;
+    udpcore_ethphy_rx_ctl_reg_d <= udpcore_ethphy_rx_ctl_reg;
+    udpcore_ethphy_source_valid <= udpcore_ethphy_rx_ctl_reg[0];
+    udpcore_ethphy_source_payload_data <= udpcore_ethphy_rx_data_reg;
+    if ((udpcore_ethphy_rx_ctl == 1'd0)) begin
+        udpcore_ethphy_link_status <= udpcore_ethphy_rx_data[0];
+        udpcore_ethphy_clock_speed <= udpcore_ethphy_rx_data[2:1];
+        udpcore_ethphy_duplex_status <= udpcore_ethphy_rx_data[3];
     end
-    udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_state <= udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_next_state;
+    liteethmac_rxdatapath_liteethmacpreamblechecker_state <= liteethmac_rxdatapath_liteethmacpreamblechecker_next_state;
     if (core_mac_core_pulsesynchronizer0_i) begin
         core_mac_core_pulsesynchronizer0_toggle_i <= (~core_mac_core_pulsesynchronizer0_toggle_i);
     end
     if (core_mac_core_liteethmaccrc32checker_crc_ce) begin
-        core_mac_core_liteethmaccrc32checker_crc_reg <= core_mac_core_liteethmaccrc32checker_crc_next;
+        core_mac_core_liteethmaccrc32checker_crc_reg <= core_mac_core_liteethmaccrc32checker_crc_crc_next;
     end
     if (core_mac_core_liteethmaccrc32checker_crc_reset) begin
         core_mac_core_liteethmaccrc32checker_crc_reg <= 32'd4294967295;
@@ -6187,7 +6431,7 @@ always @(posedge eth_rx_clk) begin
         core_mac_core_liteethmaccrc32checker_syncfifo_produce <= 3'd0;
         core_mac_core_liteethmaccrc32checker_syncfifo_consume <= 3'd0;
     end
-    udpcore_liteethmac_rxdatapath_bufferizeendpoints_state <= udpcore_liteethmac_rxdatapath_bufferizeendpoints_next_state;
+    liteethmac_rxdatapath_bufferizeendpoints_state <= liteethmac_rxdatapath_bufferizeendpoints_next_state;
     if (core_mac_core_liteethmaccrc32checker_last_be_liteethmac_next_value_ce0) begin
         core_mac_core_liteethmaccrc32checker_last_be <= core_mac_core_liteethmaccrc32checker_last_be_liteethmac_next_value0;
     end
@@ -6205,17 +6449,24 @@ always @(posedge eth_rx_clk) begin
     if (core_mac_core_pulsesynchronizer1_i) begin
         core_mac_core_pulsesynchronizer1_toggle_i <= (~core_mac_core_pulsesynchronizer1_toggle_i);
     end
+    if ((core_mac_core_rx_padding_sink_valid & core_mac_core_rx_padding_sink_ready)) begin
+        if (core_mac_core_rx_padding_sink_last) begin
+            core_mac_core_rx_padding_length <= 1'd0;
+        end else begin
+            core_mac_core_rx_padding_length <= (core_mac_core_rx_padding_length + core_mac_core_rx_padding_length_inc);
+        end
+    end
     core_mac_core_cdc_graycounter0_q_binary <= core_mac_core_cdc_graycounter0_q_next_binary;
     core_mac_core_cdc_graycounter0_q <= core_mac_core_cdc_graycounter0_q_next;
     if (eth_rx_rst) begin
-        ethphy_source_valid <= 1'd0;
-        ethphy_source_payload_data <= 8'd0;
-        ethphy_link_status <= 1'd0;
-        ethphy_clock_speed <= 1'd0;
-        ethphy_duplex_status <= 1'd0;
-        ethphy_rx_ctl_reg <= 2'd0;
-        ethphy_rx_data_reg <= 8'd0;
-        ethphy_rx_ctl_reg_d <= 2'd0;
+        udpcore_ethphy_source_valid <= 1'd0;
+        udpcore_ethphy_source_payload_data <= 8'd0;
+        udpcore_ethphy_link_status <= 1'd0;
+        udpcore_ethphy_clock_speed <= 2'd0;
+        udpcore_ethphy_duplex_status <= 1'd0;
+        udpcore_ethphy_rx_ctl_reg <= 2'd0;
+        udpcore_ethphy_rx_data_reg <= 8'd0;
+        udpcore_ethphy_rx_ctl_reg_d <= 2'd0;
         core_mac_core_liteethmaccrc32checker_crc_reg <= 32'd4294967295;
         core_mac_core_liteethmaccrc32checker_syncfifo_level <= 3'd0;
         core_mac_core_liteethmaccrc32checker_syncfifo_produce <= 3'd0;
@@ -6226,19 +6477,20 @@ always @(posedge eth_rx_clk) begin
         core_mac_core_bufferizeendpoints_pipe_valid_source_payload_data <= 8'd0;
         core_mac_core_bufferizeendpoints_pipe_valid_source_payload_last_be <= 1'd0;
         core_mac_core_bufferizeendpoints_pipe_valid_source_payload_error <= 1'd0;
+        core_mac_core_rx_padding_length <= 11'd0;
         core_mac_core_cdc_graycounter0_q <= 6'd0;
         core_mac_core_cdc_graycounter0_q_binary <= 6'd0;
-        udpcore_liteethmac_rxdatapath_liteethmacpreamblechecker_state <= 1'd0;
-        udpcore_liteethmac_rxdatapath_bufferizeendpoints_state <= 2'd0;
+        liteethmac_rxdatapath_liteethmacpreamblechecker_state <= 1'd0;
+        liteethmac_rxdatapath_bufferizeendpoints_state <= 2'd0;
     end
     multiregimpl6_regs0 <= core_mac_core_cdc_graycounter1_q;
     multiregimpl6_regs1 <= multiregimpl6_regs0;
 end
 
 always @(posedge eth_tx_clk) begin
-    core_mac_core_tx_cdc_cdc_graycounter1_q_binary <= core_mac_core_tx_cdc_cdc_graycounter1_q_next_binary;
-    core_mac_core_tx_cdc_cdc_graycounter1_q <= core_mac_core_tx_cdc_cdc_graycounter1_q_next;
-    udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_state <= udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_next_state;
+    core_mac_core_txdatapath_cdc_graycounter1_q_binary <= core_mac_core_txdatapath_cdc_graycounter1_q_next_binary;
+    core_mac_core_txdatapath_cdc_graycounter1_q <= core_mac_core_txdatapath_cdc_graycounter1_q_next;
+    liteethmac_txdatapath_liteethmacpaddinginserter_state <= liteethmac_txdatapath_liteethmacpaddinginserter_next_state;
     if (core_mac_core_tx_padding_counter_liteethmac_clockdomainsrenamer0_next_value_ce) begin
         core_mac_core_tx_padding_counter <= core_mac_core_tx_padding_counter_liteethmac_clockdomainsrenamer0_next_value;
     end
@@ -6250,17 +6502,17 @@ always @(posedge eth_tx_clk) begin
         end
     end
     if (core_mac_core_tx_crc_ce) begin
-        core_mac_core_tx_crc_reg <= core_mac_core_tx_crc_next;
+        core_mac_core_tx_crc_reg <= core_mac_core_tx_crc_crc_next;
     end
     if (core_mac_core_tx_crc_reset) begin
         core_mac_core_tx_crc_reg <= 32'd4294967295;
     end
-    udpcore_liteethmac_txdatapath_bufferizeendpoints_state <= udpcore_liteethmac_txdatapath_bufferizeendpoints_next_state;
+    liteethmac_txdatapath_bufferizeendpoints_state <= liteethmac_txdatapath_bufferizeendpoints_next_state;
     if (core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value_ce0) begin
         core_mac_core_tx_crc_crc_packet <= core_mac_core_tx_crc_crc_packet_liteethmac_clockdomainsrenamer1_next_value0;
     end
-    if (core_mac_core_tx_crc_last_be2_liteethmac_clockdomainsrenamer1_next_value_ce1) begin
-        core_mac_core_tx_crc_last_be2 <= core_mac_core_tx_crc_last_be2_liteethmac_clockdomainsrenamer1_next_value1;
+    if (core_mac_core_tx_crc_last_be_liteethmac_clockdomainsrenamer1_next_value_ce1) begin
+        core_mac_core_tx_crc_last_be <= core_mac_core_tx_crc_last_be_liteethmac_clockdomainsrenamer1_next_value1;
     end
     if (((~core_mac_core_tx_crc_pipe_valid_source_valid) | core_mac_core_tx_crc_pipe_valid_source_ready)) begin
         core_mac_core_tx_crc_pipe_valid_source_valid <= core_mac_core_tx_crc_pipe_valid_sink_valid;
@@ -6270,56 +6522,45 @@ always @(posedge eth_tx_clk) begin
         core_mac_core_tx_crc_pipe_valid_source_payload_last_be <= core_mac_core_tx_crc_pipe_valid_sink_payload_last_be;
         core_mac_core_tx_crc_pipe_valid_source_payload_error <= core_mac_core_tx_crc_pipe_valid_sink_payload_error;
     end
-    udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_state <= udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_next_state;
+    liteethmac_txdatapath_liteethmacpreambleinserter_state <= liteethmac_txdatapath_liteethmacpreambleinserter_next_state;
     if (core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value_ce) begin
         core_mac_core_tx_preamble_count <= core_mac_core_tx_preamble_count_liteethmac_clockdomainsrenamer2_next_value;
     end
-    udpcore_liteethmac_txdatapath_liteethmacgap_state <= udpcore_liteethmac_txdatapath_liteethmacgap_next_state;
+    liteethmac_txdatapath_liteethmacgap_state <= liteethmac_txdatapath_liteethmacgap_next_state;
     if (core_mac_core_tx_gap_counter_liteethmac_clockdomainsrenamer3_next_value_ce) begin
         core_mac_core_tx_gap_counter <= core_mac_core_tx_gap_counter_liteethmac_clockdomainsrenamer3_next_value;
     end
     if (eth_tx_rst) begin
-        core_mac_core_tx_cdc_cdc_graycounter1_q <= 6'd0;
-        core_mac_core_tx_cdc_cdc_graycounter1_q_binary <= 6'd0;
+        core_mac_core_txdatapath_cdc_graycounter1_q <= 6'd0;
+        core_mac_core_txdatapath_cdc_graycounter1_q_binary <= 6'd0;
         core_mac_core_tx_padding_counter <= 16'd0;
         core_mac_core_tx_crc_reg <= 32'd4294967295;
-        core_mac_core_tx_crc_crc_packet <= 32'd0;
-        core_mac_core_tx_crc_last_be2 <= 1'd0;
         core_mac_core_tx_crc_cnt <= 2'd3;
         core_mac_core_tx_crc_pipe_valid_source_valid <= 1'd0;
         core_mac_core_tx_crc_pipe_valid_source_payload_data <= 8'd0;
         core_mac_core_tx_crc_pipe_valid_source_payload_last_be <= 1'd0;
         core_mac_core_tx_crc_pipe_valid_source_payload_error <= 1'd0;
-        udpcore_liteethmac_txdatapath_liteethmacpaddinginserter_state <= 1'd0;
-        udpcore_liteethmac_txdatapath_bufferizeendpoints_state <= 2'd0;
-        udpcore_liteethmac_txdatapath_liteethmacpreambleinserter_state <= 2'd0;
-        udpcore_liteethmac_txdatapath_liteethmacgap_state <= 1'd0;
+        liteethmac_txdatapath_liteethmacpaddinginserter_state <= 1'd0;
+        liteethmac_txdatapath_bufferizeendpoints_state <= 2'd0;
+        liteethmac_txdatapath_liteethmacpreambleinserter_state <= 2'd0;
+        liteethmac_txdatapath_liteethmacgap_state <= 1'd0;
     end
-    multiregimpl1_regs0 <= core_mac_core_tx_cdc_cdc_graycounter0_q;
+    multiregimpl1_regs0 <= core_mac_core_txdatapath_cdc_graycounter0_q;
     multiregimpl1_regs1 <= multiregimpl1_regs0;
 end
 
 always @(posedge por_clk) begin
-    int_rst <= sys_reset;
+    udpcore_int_rst <= sys_reset;
 end
 
 always @(posedge sys_clk) begin
-    if ((udpcore_bus_errors != 32'd4294967295)) begin
-        if (udpcore_bus_error) begin
-            udpcore_bus_errors <= (udpcore_bus_errors + 1'd1);
+    if ((udpcore_udpcore_bus_errors != 32'd4294967295)) begin
+        if (udpcore_udpcore_bus_error) begin
+            udpcore_udpcore_bus_errors <= (udpcore_udpcore_bus_errors + 1'd1);
         end
     end
-    if (csrbank0_reset0_re) begin
-        udpcore_reset_storage[1:0] <= csrbank0_reset0_r;
-    end
-    udpcore_reset_re <= csrbank0_reset0_re;
-    if (csrbank0_scratch0_re) begin
-        udpcore_scratch_storage[31:0] <= csrbank0_scratch0_r;
-    end
-    udpcore_scratch_re <= csrbank0_scratch0_re;
-    udpcore_bus_errors_re <= csrbank0_bus_errors_re;
-    core_mac_core_tx_cdc_cdc_graycounter0_q_binary <= core_mac_core_tx_cdc_cdc_graycounter0_q_next_binary;
-    core_mac_core_tx_cdc_cdc_graycounter0_q <= core_mac_core_tx_cdc_cdc_graycounter0_q_next;
+    core_mac_core_txdatapath_cdc_graycounter0_q_binary <= core_mac_core_txdatapath_cdc_graycounter0_q_next_binary;
+    core_mac_core_txdatapath_cdc_graycounter0_q <= core_mac_core_txdatapath_cdc_graycounter0_q_next;
     if (core_mac_core_pulsesynchronizer0_o) begin
         core_mac_core_preamble_errors_status <= (core_mac_core_preamble_errors_status + 1'd1);
     end
@@ -6330,47 +6571,52 @@ always @(posedge sys_clk) begin
     core_mac_core_pulsesynchronizer1_toggle_o_r <= core_mac_core_pulsesynchronizer1_toggle_o;
     core_mac_core_cdc_graycounter1_q_binary <= core_mac_core_cdc_graycounter1_q_next_binary;
     core_mac_core_cdc_graycounter1_q <= core_mac_core_cdc_graycounter1_q_next;
-    case (udpcore_liteethmac_grant)
+    case (liteethmac_grant)
         1'd0: begin
-            if ((~udpcore_liteethmac_request[0])) begin
-                if (udpcore_liteethmac_request[1]) begin
-                    udpcore_liteethmac_grant <= 1'd1;
+            if ((~liteethmac_request[0])) begin
+                if (liteethmac_request[1]) begin
+                    liteethmac_grant <= 1'd1;
                 end
             end
         end
         1'd1: begin
-            if ((~udpcore_liteethmac_request[1])) begin
-                if (udpcore_liteethmac_request[0]) begin
-                    udpcore_liteethmac_grant <= 1'd0;
+            if ((~liteethmac_request[1])) begin
+                if (liteethmac_request[0]) begin
+                    liteethmac_grant <= 1'd0;
                 end
             end
         end
     endcase
-    udpcore_liteethmac_status0_ongoing1 <= ((core_arp_mac_port_sink_valid | udpcore_liteethmac_status0_ongoing1) & (~udpcore_liteethmac_status0_last));
-    if (udpcore_liteethmac_status0_last) begin
-        udpcore_liteethmac_status0_first <= 1'd1;
+    liteethmac_status0_ongoing1 <= liteethmac_status0_ongoing0;
+    if (liteethmac_status0_last) begin
+        liteethmac_status0_first <= 1'd1;
     end else begin
         if ((core_arp_mac_port_sink_valid & core_arp_mac_port_sink_ready)) begin
-            udpcore_liteethmac_status0_first <= 1'd0;
+            liteethmac_status0_first <= 1'd0;
         end
     end
-    udpcore_liteethmac_status1_ongoing1 <= ((core_ip_mac_port_sink_valid | udpcore_liteethmac_status1_ongoing1) & (~udpcore_liteethmac_status1_last));
-    if (udpcore_liteethmac_status1_last) begin
-        udpcore_liteethmac_status1_first <= 1'd1;
+    liteethmac_status1_ongoing1 <= liteethmac_status1_ongoing0;
+    if (liteethmac_status1_last) begin
+        liteethmac_status1_first <= 1'd1;
     end else begin
         if ((core_ip_mac_port_sink_valid & core_ip_mac_port_sink_ready)) begin
-            udpcore_liteethmac_status1_first <= 1'd0;
+            liteethmac_status1_first <= 1'd0;
         end
     end
-    if (udpcore_liteethmac_first) begin
-        udpcore_liteethmac_sel_ongoing <= udpcore_liteethmac_sel0;
+    if (liteethmac_last) begin
+        liteethmac_sel_locked <= 1'd0;
+    end else begin
+        if (((liteethmac_first & core_mac_crossbar_sink_valid) & (~liteethmac_sel_locked))) begin
+            liteethmac_sel_ongoing <= liteethmac_sel0;
+            liteethmac_sel_locked <= 1'd1;
+        end
     end
-    udpcore_liteethmac_ongoing1 <= ((core_mac_crossbar_sink_valid | udpcore_liteethmac_ongoing1) & (~udpcore_liteethmac_last));
-    if (udpcore_liteethmac_last) begin
-        udpcore_liteethmac_first <= 1'd1;
+    liteethmac_ongoing1 <= liteethmac_ongoing0;
+    if (liteethmac_last) begin
+        liteethmac_first <= 1'd1;
     end else begin
         if ((core_mac_crossbar_sink_valid & core_mac_crossbar_sink_ready)) begin
-            udpcore_liteethmac_first <= 1'd0;
+            liteethmac_first <= 1'd0;
         end
     end
     if (core_mac_packetizer_sr_load) begin
@@ -6379,14 +6625,14 @@ always @(posedge sys_clk) begin
     if (core_mac_packetizer_sr_shift) begin
         core_mac_packetizer_sr <= core_mac_packetizer_sr[111:8];
     end
-    udpcore_liteethmac_fsm0_state0 <= udpcore_liteethmac_fsm0_next_state0;
+    liteethmac_fsm0_state0 <= liteethmac_fsm0_next_state0;
     if (core_mac_packetizer_count_liteethmac_fsm0_next_value_ce0) begin
         core_mac_packetizer_count <= core_mac_packetizer_count_liteethmac_fsm0_next_value0;
     end
     if (core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value_ce1) begin
         core_mac_packetizer_fsm_from_idle <= core_mac_packetizer_fsm_from_idle_liteethmac_fsm0_next_value1;
     end
-    udpcore_liteethmac_fsm1_state0 <= udpcore_liteethmac_fsm1_next_state0;
+    liteethmac_fsm1_state0 <= liteethmac_fsm1_next_state0;
     if (core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value_ce0) begin
         core_mac_packetizer_delayed_last_be <= core_mac_packetizer_delayed_last_be_liteethmac_fsm1_next_value0;
     end
@@ -6394,17 +6640,17 @@ always @(posedge sys_clk) begin
         core_mac_depacketizer_sr <= {core_mac_depacketizer_sink_payload_data, core_mac_depacketizer_sr[111:8]};
     end
     if (core_mac_depacketizer_sr_shift_leftover) begin
-        core_mac_depacketizer_sr <= {core_mac_depacketizer_sink_payload_data, core_mac_depacketizer_sr[111:0]};
+        core_mac_depacketizer_sr <= {core_mac_depacketizer_sink_payload_data, core_mac_depacketizer_sr};
     end
     core_mac_depacketizer_was_in_copy <= core_mac_depacketizer_is_in_copy;
-    udpcore_liteethmac_fsm0_state1 <= udpcore_liteethmac_fsm0_next_state1;
+    liteethmac_fsm0_state1 <= liteethmac_fsm0_next_state1;
     if (core_mac_depacketizer_count_liteethmac_fsm0_next_value_ce2) begin
         core_mac_depacketizer_count <= core_mac_depacketizer_count_liteethmac_fsm0_next_value2;
     end
     if (core_mac_depacketizer_fsm_from_idle_liteethmac_fsm0_next_value_ce3) begin
         core_mac_depacketizer_fsm_from_idle <= core_mac_depacketizer_fsm_from_idle_liteethmac_fsm0_next_value3;
     end
-    udpcore_liteethmac_fsm1_state1 <= udpcore_liteethmac_fsm1_next_state1;
+    liteethmac_fsm1_state1 <= liteethmac_fsm1_next_state1;
     if (core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value_ce1) begin
         core_mac_depacketizer_delayed_last_be <= core_mac_depacketizer_delayed_last_be_liteethmac_fsm1_next_value1;
     end
@@ -6414,18 +6660,18 @@ always @(posedge sys_clk) begin
     if (core_arp_tx_packetizer_sr_shift) begin
         core_arp_tx_packetizer_sr <= core_arp_tx_packetizer_sr[223:8];
     end
-    udpcore_liteetharptx_fsm0_state <= udpcore_liteetharptx_fsm0_next_state;
+    liteetharptx_fsm0_state <= liteetharptx_fsm0_next_state;
     if (core_arp_tx_packetizer_count_liteetharp_fsm0_next_value_ce0) begin
         core_arp_tx_packetizer_count <= core_arp_tx_packetizer_count_liteetharp_fsm0_next_value0;
     end
     if (core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value_ce1) begin
         core_arp_tx_packetizer_fsm_from_idle <= core_arp_tx_packetizer_fsm_from_idle_liteetharp_fsm0_next_value1;
     end
-    udpcore_liteetharptx_fsm1_state <= udpcore_liteetharptx_fsm1_next_state;
+    liteetharptx_fsm1_state <= liteetharptx_fsm1_next_state;
     if (core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value_ce0) begin
         core_arp_tx_packetizer_delayed_last_be <= core_arp_tx_packetizer_delayed_last_be_liteetharp_fsm1_next_value0;
     end
-    udpcore_liteetharptx_state <= udpcore_liteetharptx_next_state;
+    liteetharptx_state <= liteetharptx_next_state;
     if (core_arp_tx_counter_liteetharp_next_value_ce) begin
         core_arp_tx_counter <= core_arp_tx_counter_liteetharp_next_value;
     end
@@ -6434,51 +6680,21 @@ always @(posedge sys_clk) begin
         core_arp_rx_depacketizer_sr <= {core_arp_rx_depacketizer_sink_payload_data, core_arp_rx_depacketizer_sr[223:8]};
     end
     if (core_arp_rx_depacketizer_sr_shift_leftover) begin
-        core_arp_rx_depacketizer_sr <= {core_arp_rx_depacketizer_sink_payload_data, core_arp_rx_depacketizer_sr[223:0]};
+        core_arp_rx_depacketizer_sr <= {core_arp_rx_depacketizer_sink_payload_data, core_arp_rx_depacketizer_sr};
     end
     core_arp_rx_depacketizer_was_in_copy <= core_arp_rx_depacketizer_is_in_copy;
-    udpcore_liteetharprx_fsm0_state <= udpcore_liteetharprx_fsm0_next_state;
+    liteetharprx_fsm0_state <= liteetharprx_fsm0_next_state;
     if (core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value_ce2) begin
         core_arp_rx_depacketizer_count <= core_arp_rx_depacketizer_count_liteetharp_fsm0_next_value2;
     end
     if (core_arp_rx_depacketizer_fsm_from_idle_liteetharp_fsm0_next_value_ce3) begin
         core_arp_rx_depacketizer_fsm_from_idle <= core_arp_rx_depacketizer_fsm_from_idle_liteetharp_fsm0_next_value3;
     end
-    udpcore_liteetharprx_fsm1_state <= udpcore_liteetharprx_fsm1_next_state;
+    liteetharprx_fsm1_state <= liteetharprx_fsm1_next_state;
     if (core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value_ce1) begin
         core_arp_rx_depacketizer_delayed_last_be <= core_arp_rx_depacketizer_delayed_last_be_liteetharp_fsm1_next_value1;
     end
-    udpcore_liteetharprx_state <= udpcore_liteetharprx_next_state;
-    if (core_arp_table_request_pending_clr) begin
-        core_arp_table_request_pending <= 1'd0;
-    end else begin
-        if (core_arp_table_request_pending_set) begin
-            core_arp_table_request_pending <= 1'd1;
-        end
-    end
-    if (core_arp_table_request_ip_address_reset) begin
-        core_arp_table_request_ip_address <= 1'd0;
-    end else begin
-        if (core_arp_table_request_ip_address_update) begin
-            core_arp_table_request_ip_address <= core_arp_table_request_payload_ip_address;
-        end
-    end
-    if (core_arp_table_request_counter_reset) begin
-        core_arp_table_request_counter <= 1'd0;
-    end else begin
-        if (core_arp_table_request_counter_ce) begin
-            core_arp_table_request_counter <= (core_arp_table_request_counter + 1'd1);
-        end
-    end
-    if (core_arp_table_update) begin
-        core_arp_table_cached_valid <= 1'd1;
-        core_arp_table_cached_ip_address <= core_arp_table_sink_payload_ip_address;
-        core_arp_table_cached_mac_address <= core_arp_table_sink_payload_mac_address;
-    end else begin
-        if (core_arp_table_cached_timer_done) begin
-            core_arp_table_cached_valid <= 1'd0;
-        end
-    end
+    liteetharprx_state <= liteetharprx_next_state;
     if (core_arp_table_request_timer_wait) begin
         if ((~core_arp_table_request_timer_done)) begin
             core_arp_table_request_timer_count <= (core_arp_table_request_timer_count - 1'd1);
@@ -6486,14 +6702,50 @@ always @(posedge sys_clk) begin
     end else begin
         core_arp_table_request_timer_count <= 24'd12500000;
     end
-    if (core_arp_table_cached_timer_wait) begin
-        if ((~core_arp_table_cached_timer_done)) begin
-            core_arp_table_cached_timer_count <= (core_arp_table_cached_timer_count - 1'd1);
+    if (core_arp_table_cache_wait) begin
+        if ((~core_arp_table_cache_done)) begin
+            core_arp_table_cache_count <= (core_arp_table_cache_count - 1'd1);
         end
     end else begin
-        core_arp_table_cached_timer_count <= 31'd1250000000;
+        core_arp_table_cache_count <= 27'd125000000;
     end
-    udpcore_liteetharptable_state <= udpcore_liteetharptable_next_state;
+    liteetharpcache_state <= liteetharpcache_next_state;
+    if (core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value_ce0) begin
+        core_arp_table_cache_update_count <= core_arp_table_cache_update_count_liteetharp_liteetharpcache_next_value0;
+    end
+    if (core_arp_table_cache_search_count_liteetharp_liteetharpcache_next_value_ce1) begin
+        core_arp_table_cache_search_count <= core_arp_table_cache_search_count_liteetharp_liteetharpcache_next_value1;
+    end
+    if (core_arp_table_cache_error_liteetharp_liteetharpcache_next_value_ce2) begin
+        core_arp_table_cache_error <= core_arp_table_cache_error_liteetharp_liteetharpcache_next_value2;
+    end
+    fsm_state <= fsm_next_state;
+    if (core_arp_table_request_pending_liteetharp_fsm_next_value_ce0) begin
+        core_arp_table_request_pending <= core_arp_table_request_pending_liteetharp_fsm_next_value0;
+    end
+    if (core_arp_table_response_response_payload_mac_address_liteetharp_fsm_next_value_ce1) begin
+        core_arp_table_response_response_payload_mac_address <= core_arp_table_response_response_payload_mac_address_liteetharp_fsm_next_value1;
+    end
+    if (core_arp_table_response_response_payload_failed_liteetharp_fsm_next_value_ce2) begin
+        core_arp_table_response_response_payload_failed <= core_arp_table_response_response_payload_failed_liteetharp_fsm_next_value2;
+    end
+    if (core_arp_table_request_counter_liteetharp_fsm_next_value_ce3) begin
+        core_arp_table_request_counter <= core_arp_table_request_counter_liteetharp_fsm_next_value3;
+    end
+    if (core_arp_table_request_ip_address_liteetharp_fsm_next_value_ce4) begin
+        core_arp_table_request_ip_address <= core_arp_table_request_ip_address_liteetharp_fsm_next_value4;
+    end
+    if (((~core_ip_tx_pipe_valid_source_valid) | core_ip_tx_pipe_valid_source_ready)) begin
+        core_ip_tx_pipe_valid_source_valid <= core_ip_tx_pipe_valid_sink_valid;
+        core_ip_tx_pipe_valid_source_first <= core_ip_tx_pipe_valid_sink_first;
+        core_ip_tx_pipe_valid_source_last <= core_ip_tx_pipe_valid_sink_last;
+        core_ip_tx_pipe_valid_source_payload_data <= core_ip_tx_pipe_valid_sink_payload_data;
+        core_ip_tx_pipe_valid_source_payload_last_be <= core_ip_tx_pipe_valid_sink_payload_last_be;
+        core_ip_tx_pipe_valid_source_payload_error <= core_ip_tx_pipe_valid_sink_payload_error;
+        core_ip_tx_pipe_valid_source_param_length <= core_ip_tx_pipe_valid_sink_param_length;
+        core_ip_tx_pipe_valid_source_param_protocol <= core_ip_tx_pipe_valid_sink_param_protocol;
+        core_ip_tx_pipe_valid_source_param_ip_address <= core_ip_tx_pipe_valid_sink_param_ip_address;
+    end
     if (core_ip_tx_ce) begin
         if ((~core_ip_tx_liteethipv4checksum_done)) begin
             core_ip_tx_liteethipv4checksum_r_next0 <= {core_ip_tx_liteethipv4checksum0, (core_ip_tx_liteethipv4checksum_s_next0[15:0] + core_ip_tx_liteethipv4checksum_s_next0[16])};
@@ -6535,18 +6787,18 @@ always @(posedge sys_clk) begin
     if (core_ip_tx_packetizer_sr_shift) begin
         core_ip_tx_packetizer_sr <= core_ip_tx_packetizer_sr[159:8];
     end
-    udpcore_liteethip_liteethiptx_fsm0_state <= udpcore_liteethip_liteethiptx_fsm0_next_state;
+    liteethip_liteethiptx_fsm0_state <= liteethip_liteethiptx_fsm0_next_state;
     if (core_ip_tx_packetizer_count_liteethip_fsm0_next_value_ce0) begin
         core_ip_tx_packetizer_count <= core_ip_tx_packetizer_count_liteethip_fsm0_next_value0;
     end
     if (core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value_ce1) begin
         core_ip_tx_packetizer_fsm_from_idle <= core_ip_tx_packetizer_fsm_from_idle_liteethip_fsm0_next_value1;
     end
-    udpcore_liteethip_liteethiptx_fsm1_state <= udpcore_liteethip_liteethiptx_fsm1_next_state;
+    liteethip_liteethiptx_fsm1_state <= liteethip_liteethiptx_fsm1_next_state;
     if (core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value_ce0) begin
         core_ip_tx_packetizer_delayed_last_be <= core_ip_tx_packetizer_delayed_last_be_liteethip_fsm1_next_value0;
     end
-    udpcore_liteethip_liteethiptx_state <= udpcore_liteethip_liteethiptx_next_state;
+    liteethip_liteethiptx_state <= liteethip_liteethiptx_next_state;
     if (core_ip_tx_target_mac_liteethip_next_value_ce) begin
         core_ip_tx_target_mac <= core_ip_tx_target_mac_liteethip_next_value;
     end
@@ -6554,17 +6806,17 @@ always @(posedge sys_clk) begin
         core_ip_rx_depacketizer_sr <= {core_ip_rx_depacketizer_sink_payload_data, core_ip_rx_depacketizer_sr[159:8]};
     end
     if (core_ip_rx_depacketizer_sr_shift_leftover) begin
-        core_ip_rx_depacketizer_sr <= {core_ip_rx_depacketizer_sink_payload_data, core_ip_rx_depacketizer_sr[159:0]};
+        core_ip_rx_depacketizer_sr <= {core_ip_rx_depacketizer_sink_payload_data, core_ip_rx_depacketizer_sr};
     end
     core_ip_rx_depacketizer_was_in_copy <= core_ip_rx_depacketizer_is_in_copy;
-    udpcore_liteethip_liteethiprx_fsm0_state <= udpcore_liteethip_liteethiprx_fsm0_next_state;
+    liteethip_liteethiprx_fsm0_state <= liteethip_liteethiprx_fsm0_next_state;
     if (core_ip_rx_depacketizer_count_liteethip_fsm0_next_value_ce2) begin
         core_ip_rx_depacketizer_count <= core_ip_rx_depacketizer_count_liteethip_fsm0_next_value2;
     end
     if (core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value_ce3) begin
         core_ip_rx_depacketizer_fsm_from_idle <= core_ip_rx_depacketizer_fsm_from_idle_liteethip_fsm0_next_value3;
     end
-    udpcore_liteethip_liteethiprx_fsm1_state <= udpcore_liteethip_liteethiprx_fsm1_next_state;
+    liteethip_liteethiprx_fsm1_state <= liteethip_liteethiprx_fsm1_next_state;
     if (core_ip_rx_depacketizer_delayed_last_be_liteethip_fsm1_next_value_ce1) begin
         core_ip_rx_depacketizer_delayed_last_be <= core_ip_rx_depacketizer_delayed_last_be_liteethip_fsm1_next_value1;
     end
@@ -6606,48 +6858,53 @@ always @(posedge sys_clk) begin
     if (core_ip_rx_reset) begin
         core_ip_rx_liteethipv4checksum_counter <= 4'd0;
     end
-    udpcore_liteethip_liteethiprx_state <= udpcore_liteethip_liteethiprx_next_state;
-    case (udpcore_liteethip_grant)
+    liteethip_liteethiprx_state <= liteethip_liteethiprx_next_state;
+    case (liteethip_grant)
         1'd0: begin
-            if ((~udpcore_liteethip_request[0])) begin
-                if (udpcore_liteethip_request[1]) begin
-                    udpcore_liteethip_grant <= 1'd1;
+            if ((~liteethip_request[0])) begin
+                if (liteethip_request[1]) begin
+                    liteethip_grant <= 1'd1;
                 end
             end
         end
         1'd1: begin
-            if ((~udpcore_liteethip_request[1])) begin
-                if (udpcore_liteethip_request[0]) begin
-                    udpcore_liteethip_grant <= 1'd0;
+            if ((~liteethip_request[1])) begin
+                if (liteethip_request[0]) begin
+                    liteethip_grant <= 1'd0;
                 end
             end
         end
     endcase
-    udpcore_liteethip_status0_ongoing1 <= ((core_icmp_ip_port_sink_valid | udpcore_liteethip_status0_ongoing1) & (~udpcore_liteethip_status0_last));
-    if (udpcore_liteethip_status0_last) begin
-        udpcore_liteethip_status0_first <= 1'd1;
+    liteethip_status0_ongoing1 <= liteethip_status0_ongoing0;
+    if (liteethip_status0_last) begin
+        liteethip_status0_first <= 1'd1;
     end else begin
         if ((core_icmp_ip_port_sink_valid & core_icmp_ip_port_sink_ready)) begin
-            udpcore_liteethip_status0_first <= 1'd0;
+            liteethip_status0_first <= 1'd0;
         end
     end
-    udpcore_liteethip_status1_ongoing1 <= ((core_ip_port_sink_valid | udpcore_liteethip_status1_ongoing1) & (~udpcore_liteethip_status1_last));
-    if (udpcore_liteethip_status1_last) begin
-        udpcore_liteethip_status1_first <= 1'd1;
+    liteethip_status1_ongoing1 <= liteethip_status1_ongoing0;
+    if (liteethip_status1_last) begin
+        liteethip_status1_first <= 1'd1;
     end else begin
         if ((core_ip_port_sink_valid & core_ip_port_sink_ready)) begin
-            udpcore_liteethip_status1_first <= 1'd0;
+            liteethip_status1_first <= 1'd0;
         end
     end
-    if (udpcore_liteethip_first) begin
-        udpcore_liteethip_sel_ongoing <= udpcore_liteethip_sel0;
+    if (liteethip_last) begin
+        liteethip_sel_locked <= 1'd0;
+    end else begin
+        if (((liteethip_first & core_ip_crossbar_sink_valid) & (~liteethip_sel_locked))) begin
+            liteethip_sel_ongoing <= liteethip_sel0;
+            liteethip_sel_locked <= 1'd1;
+        end
     end
-    udpcore_liteethip_ongoing1 <= ((core_ip_crossbar_sink_valid | udpcore_liteethip_ongoing1) & (~udpcore_liteethip_last));
-    if (udpcore_liteethip_last) begin
-        udpcore_liteethip_first <= 1'd1;
+    liteethip_ongoing1 <= liteethip_ongoing0;
+    if (liteethip_last) begin
+        liteethip_first <= 1'd1;
     end else begin
         if ((core_ip_crossbar_sink_valid & core_ip_crossbar_sink_ready)) begin
-            udpcore_liteethip_first <= 1'd0;
+            liteethip_first <= 1'd0;
         end
     end
     if (core_icmp_tx_packetizer_sr_load) begin
@@ -6656,37 +6913,37 @@ always @(posedge sys_clk) begin
     if (core_icmp_tx_packetizer_sr_shift) begin
         core_icmp_tx_packetizer_sr <= core_icmp_tx_packetizer_sr[63:8];
     end
-    udpcore_liteethicmptx_fsm0_state <= udpcore_liteethicmptx_fsm0_next_state;
+    liteethicmptx_fsm0_state <= liteethicmptx_fsm0_next_state;
     if (core_icmp_tx_packetizer_count_fsm0_next_value_ce0) begin
         core_icmp_tx_packetizer_count <= core_icmp_tx_packetizer_count_fsm0_next_value0;
     end
     if (core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value_ce1) begin
         core_icmp_tx_packetizer_fsm_from_idle <= core_icmp_tx_packetizer_fsm_from_idle_fsm0_next_value1;
     end
-    udpcore_liteethicmptx_fsm1_state <= udpcore_liteethicmptx_fsm1_next_state;
+    liteethicmptx_fsm1_state <= liteethicmptx_fsm1_next_state;
     if (core_icmp_tx_packetizer_delayed_last_be_fsm1_next_value_ce0) begin
         core_icmp_tx_packetizer_delayed_last_be <= core_icmp_tx_packetizer_delayed_last_be_fsm1_next_value0;
     end
-    udpcore_liteethicmptx_state <= udpcore_liteethicmptx_next_state;
+    liteethicmptx_state <= liteethicmptx_next_state;
     if (core_icmp_rx_depacketizer_sr_shift) begin
         core_icmp_rx_depacketizer_sr <= {core_icmp_rx_depacketizer_sink_payload_data, core_icmp_rx_depacketizer_sr[63:8]};
     end
     if (core_icmp_rx_depacketizer_sr_shift_leftover) begin
-        core_icmp_rx_depacketizer_sr <= {core_icmp_rx_depacketizer_sink_payload_data, core_icmp_rx_depacketizer_sr[63:0]};
+        core_icmp_rx_depacketizer_sr <= {core_icmp_rx_depacketizer_sink_payload_data, core_icmp_rx_depacketizer_sr};
     end
     core_icmp_rx_depacketizer_was_in_copy <= core_icmp_rx_depacketizer_is_in_copy;
-    udpcore_liteethicmprx_fsm0_state <= udpcore_liteethicmprx_fsm0_next_state;
+    liteethicmprx_fsm0_state <= liteethicmprx_fsm0_next_state;
     if (core_icmp_rx_depacketizer_count_fsm0_next_value_ce2) begin
         core_icmp_rx_depacketizer_count <= core_icmp_rx_depacketizer_count_fsm0_next_value2;
     end
     if (core_icmp_rx_depacketizer_fsm_from_idle_fsm0_next_value_ce3) begin
         core_icmp_rx_depacketizer_fsm_from_idle <= core_icmp_rx_depacketizer_fsm_from_idle_fsm0_next_value3;
     end
-    udpcore_liteethicmprx_fsm1_state <= udpcore_liteethicmprx_fsm1_next_state;
+    liteethicmprx_fsm1_state <= liteethicmprx_fsm1_next_state;
     if (core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value_ce1) begin
         core_icmp_rx_depacketizer_delayed_last_be <= core_icmp_rx_depacketizer_delayed_last_be_fsm1_next_value1;
     end
-    udpcore_liteethicmprx_state <= udpcore_liteethicmprx_next_state;
+    liteethicmprx_state <= liteethicmprx_next_state;
     if (core_icmp_echo_payload_fifo_syncfifo_re) begin
         core_icmp_echo_payload_fifo_readable <= 1'd1;
     end else begin
@@ -6737,92 +6994,121 @@ always @(posedge sys_clk) begin
     if (core_tx_packetizer_sr_shift) begin
         core_tx_packetizer_sr <= core_tx_packetizer_sr[63:8];
     end
-    udpcore_liteethudp_liteethudptx_fsm0_state <= udpcore_liteethudp_liteethudptx_fsm0_next_state;
+    liteethudp_liteethudptx_fsm0_state <= liteethudp_liteethudptx_fsm0_next_state;
     if (core_tx_packetizer_count_liteethudp_fsm0_next_value_ce0) begin
         core_tx_packetizer_count <= core_tx_packetizer_count_liteethudp_fsm0_next_value0;
     end
     if (core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value_ce1) begin
         core_tx_packetizer_fsm_from_idle <= core_tx_packetizer_fsm_from_idle_liteethudp_fsm0_next_value1;
     end
-    udpcore_liteethudp_liteethudptx_fsm1_state <= udpcore_liteethudp_liteethudptx_fsm1_next_state;
+    liteethudp_liteethudptx_fsm1_state <= liteethudp_liteethudptx_fsm1_next_state;
     if (core_tx_packetizer_delayed_last_be_liteethudp_fsm1_next_value_ce0) begin
         core_tx_packetizer_delayed_last_be <= core_tx_packetizer_delayed_last_be_liteethudp_fsm1_next_value0;
     end
-    udpcore_liteethudp_liteethudptx_state <= udpcore_liteethudp_liteethudptx_next_state;
+    liteethudp_liteethudptx_state <= liteethudp_liteethudptx_next_state;
     if (core_rx_depacketizer_sr_shift) begin
         core_rx_depacketizer_sr <= {core_rx_depacketizer_sink_payload_data, core_rx_depacketizer_sr[63:8]};
     end
     if (core_rx_depacketizer_sr_shift_leftover) begin
-        core_rx_depacketizer_sr <= {core_rx_depacketizer_sink_payload_data, core_rx_depacketizer_sr[63:0]};
+        core_rx_depacketizer_sr <= {core_rx_depacketizer_sink_payload_data, core_rx_depacketizer_sr};
     end
     core_rx_depacketizer_was_in_copy <= core_rx_depacketizer_is_in_copy;
-    udpcore_liteethudp_liteethudprx_fsm0_state <= udpcore_liteethudp_liteethudprx_fsm0_next_state;
+    liteethudp_liteethudprx_fsm0_state <= liteethudp_liteethudprx_fsm0_next_state;
     if (core_rx_depacketizer_count_liteethudp_fsm0_next_value_ce2) begin
         core_rx_depacketizer_count <= core_rx_depacketizer_count_liteethudp_fsm0_next_value2;
     end
     if (core_rx_depacketizer_fsm_from_idle_liteethudp_fsm0_next_value_ce3) begin
         core_rx_depacketizer_fsm_from_idle <= core_rx_depacketizer_fsm_from_idle_liteethudp_fsm0_next_value3;
     end
-    udpcore_liteethudp_liteethudprx_fsm1_state <= udpcore_liteethudp_liteethudprx_fsm1_next_state;
+    liteethudp_liteethudprx_fsm1_state <= liteethudp_liteethudprx_fsm1_next_state;
     if (core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value_ce1) begin
         core_rx_depacketizer_delayed_last_be <= core_rx_depacketizer_delayed_last_be_liteethudp_fsm1_next_value1;
     end
-    udpcore_liteethudp_liteethudprx_state <= udpcore_liteethudp_liteethudprx_next_state;
+    liteethudp_liteethudprx_state <= liteethudp_liteethudprx_next_state;
     if (core_rx_count_liteethudp_next_value_ce) begin
         core_rx_count <= core_rx_count_liteethudp_next_value;
     end
-    if (udp_streamer_tx_fifo_syncfifo_re) begin
-        udp_streamer_tx_fifo_readable <= 1'd1;
+    if (liteethudp_last) begin
+        liteethudp_sel_locked <= 1'd0;
     end else begin
-        if (udp_streamer_tx_fifo_re) begin
-            udp_streamer_tx_fifo_readable <= 1'd0;
+        if (((liteethudp_first & core_crossbar_sink_valid) & (~liteethudp_sel_locked))) begin
+            liteethudp_sel_ongoing <= liteethudp_sel0;
+            liteethudp_sel_locked <= 1'd1;
         end
     end
-    if (((udp_streamer_tx_fifo_syncfifo_we & udp_streamer_tx_fifo_syncfifo_writable) & (~udp_streamer_tx_fifo_replace))) begin
-        udp_streamer_tx_fifo_produce <= (udp_streamer_tx_fifo_produce + 1'd1);
-    end
-    if (udp_streamer_tx_fifo_do_read) begin
-        udp_streamer_tx_fifo_consume <= (udp_streamer_tx_fifo_consume + 1'd1);
-    end
-    if (((udp_streamer_tx_fifo_syncfifo_we & udp_streamer_tx_fifo_syncfifo_writable) & (~udp_streamer_tx_fifo_replace))) begin
-        if ((~udp_streamer_tx_fifo_do_read)) begin
-            udp_streamer_tx_fifo_level0 <= (udp_streamer_tx_fifo_level0 + 1'd1);
-        end
+    liteethudp_ongoing1 <= liteethudp_ongoing0;
+    if (liteethudp_last) begin
+        liteethudp_first <= 1'd1;
     end else begin
-        if (udp_streamer_tx_fifo_do_read) begin
-            udp_streamer_tx_fifo_level0 <= (udp_streamer_tx_fifo_level0 - 1'd1);
+        if ((core_crossbar_sink_valid & core_crossbar_sink_ready)) begin
+            liteethudp_first <= 1'd0;
         end
     end
-    udpcore_liteethudpstreamer_state <= udpcore_liteethudpstreamer_next_state;
-    if (udp_streamer_tx_level_next_value_ce0) begin
-        udp_streamer_tx_level <= udp_streamer_tx_level_next_value0;
-    end
-    if (udp_streamer_tx_counter_next_value_ce1) begin
-        udp_streamer_tx_counter <= udp_streamer_tx_counter_next_value1;
-    end
-    if (udp_streamer_rx_fifo_syncfifo_re) begin
-        udp_streamer_rx_fifo_readable <= 1'd1;
+    if (udpcore_tx_fifo_syncfifo_re) begin
+        udpcore_tx_fifo_readable <= 1'd1;
     end else begin
-        if (udp_streamer_rx_fifo_re) begin
-            udp_streamer_rx_fifo_readable <= 1'd0;
+        if (udpcore_tx_fifo_re) begin
+            udpcore_tx_fifo_readable <= 1'd0;
         end
     end
-    if (((udp_streamer_rx_fifo_syncfifo_we & udp_streamer_rx_fifo_syncfifo_writable) & (~udp_streamer_rx_fifo_replace))) begin
-        udp_streamer_rx_fifo_produce <= (udp_streamer_rx_fifo_produce + 1'd1);
+    if (((udpcore_tx_fifo_syncfifo_we & udpcore_tx_fifo_syncfifo_writable) & (~udpcore_tx_fifo_replace))) begin
+        udpcore_tx_fifo_produce <= (udpcore_tx_fifo_produce + 1'd1);
     end
-    if (udp_streamer_rx_fifo_do_read) begin
-        udp_streamer_rx_fifo_consume <= (udp_streamer_rx_fifo_consume + 1'd1);
+    if (udpcore_tx_fifo_do_read) begin
+        udpcore_tx_fifo_consume <= (udpcore_tx_fifo_consume + 1'd1);
     end
-    if (((udp_streamer_rx_fifo_syncfifo_we & udp_streamer_rx_fifo_syncfifo_writable) & (~udp_streamer_rx_fifo_replace))) begin
-        if ((~udp_streamer_rx_fifo_do_read)) begin
-            udp_streamer_rx_fifo_level0 <= (udp_streamer_rx_fifo_level0 + 1'd1);
+    if (((udpcore_tx_fifo_syncfifo_we & udpcore_tx_fifo_syncfifo_writable) & (~udpcore_tx_fifo_replace))) begin
+        if ((~udpcore_tx_fifo_do_read)) begin
+            udpcore_tx_fifo_level0 <= (udpcore_tx_fifo_level0 + 1'd1);
         end
     end else begin
-        if (udp_streamer_rx_fifo_do_read) begin
-            udp_streamer_rx_fifo_level0 <= (udp_streamer_rx_fifo_level0 - 1'd1);
+        if (udpcore_tx_fifo_do_read) begin
+            udpcore_tx_fifo_level0 <= (udpcore_tx_fifo_level0 - 1'd1);
         end
     end
-    udpcore_wishbone2csr_state <= udpcore_wishbone2csr_next_state;
+    liteethudpstreamer_state <= liteethudpstreamer_next_state;
+    if (udpcore_tx_counter_next_value_ce0) begin
+        udpcore_tx_counter <= udpcore_tx_counter_next_value0;
+    end
+    if (udpcore_tx_ip_address1_next_value_ce1) begin
+        udpcore_tx_ip_address1 <= udpcore_tx_ip_address1_next_value1;
+    end
+    if (udpcore_tx_udp_port1_next_value_ce2) begin
+        udpcore_tx_udp_port1 <= udpcore_tx_udp_port1_next_value2;
+    end
+    if (udpcore_tx_level_next_value_ce3) begin
+        udpcore_tx_level <= udpcore_tx_level_next_value3;
+    end
+    if (udpcore_tx_reset) begin
+        udpcore_tx_level <= 7'd0;
+        udpcore_tx_counter <= 7'd0;
+        udpcore_tx_ip_address1 <= 32'd0;
+        udpcore_tx_udp_port1 <= 16'd0;
+        liteethudpstreamer_state <= 1'd0;
+    end
+    if (udpcore_rx_fifo_syncfifo_re) begin
+        udpcore_rx_fifo_readable <= 1'd1;
+    end else begin
+        if (udpcore_rx_fifo_re) begin
+            udpcore_rx_fifo_readable <= 1'd0;
+        end
+    end
+    if (((udpcore_rx_fifo_syncfifo_we & udpcore_rx_fifo_syncfifo_writable) & (~udpcore_rx_fifo_replace))) begin
+        udpcore_rx_fifo_produce <= (udpcore_rx_fifo_produce + 1'd1);
+    end
+    if (udpcore_rx_fifo_do_read) begin
+        udpcore_rx_fifo_consume <= (udpcore_rx_fifo_consume + 1'd1);
+    end
+    if (((udpcore_rx_fifo_syncfifo_we & udpcore_rx_fifo_syncfifo_writable) & (~udpcore_rx_fifo_replace))) begin
+        if ((~udpcore_rx_fifo_do_read)) begin
+            udpcore_rx_fifo_level0 <= (udpcore_rx_fifo_level0 + 1'd1);
+        end
+    end else begin
+        if (udpcore_rx_fifo_do_read) begin
+            udpcore_rx_fifo_level0 <= (udpcore_rx_fifo_level0 - 1'd1);
+        end
+    end
+    wishbone2csr_state <= wishbone2csr_next_state;
     interface0_bank_bus_dat_r <= 1'd0;
     if (csrbank0_sel) begin
         case (interface0_bank_bus_adr[8:0])
@@ -6837,6 +7123,15 @@ always @(posedge sys_clk) begin
             end
         endcase
     end
+    if (csrbank0_reset0_re) begin
+        udpcore_udpcore_reset_storage <= csrbank0_reset0_r;
+    end
+    udpcore_udpcore_reset_re <= csrbank0_reset0_re;
+    if (csrbank0_scratch0_re) begin
+        udpcore_udpcore_scratch_storage <= csrbank0_scratch0_r;
+    end
+    udpcore_udpcore_scratch_re <= csrbank0_scratch0_re;
+    udpcore_udpcore_bus_errors_re <= csrbank0_bus_errors_re;
     interface1_bank_bus_dat_r <= 1'd0;
     if (csrbank1_sel) begin
         case (interface1_bank_bus_adr[8:0])
@@ -6855,30 +7150,30 @@ always @(posedge sys_clk) begin
         endcase
     end
     if (csrbank1_crg_reset0_re) begin
-        ethphy_reset_storage <= csrbank1_crg_reset0_r;
+        udpcore_ethphy_reset_storage <= csrbank1_crg_reset0_r;
     end
-    ethphy_reset_re <= csrbank1_crg_reset0_re;
-    ethphy_re <= csrbank1_rx_inband_status_re;
+    udpcore_ethphy_reset_re <= csrbank1_crg_reset0_re;
+    udpcore_ethphy_re <= csrbank1_rx_inband_status_re;
     if (csrbank1_mdio_w0_re) begin
-        ethphy__w_storage[2:0] <= csrbank1_mdio_w0_r;
+        udpcore_ethphy__w_storage <= csrbank1_mdio_w0_r;
     end
-    ethphy__w_re <= csrbank1_mdio_w0_re;
-    ethphy__r_re <= csrbank1_mdio_r_re;
+    udpcore_ethphy__w_re <= csrbank1_mdio_w0_re;
+    udpcore_ethphy__r_re <= csrbank1_mdio_r_re;
     if (sys_rst) begin
-        udpcore_reset_storage <= 2'd0;
-        udpcore_reset_re <= 1'd0;
-        udpcore_scratch_storage <= 32'd305419896;
-        udpcore_scratch_re <= 1'd0;
-        udpcore_bus_errors_re <= 1'd0;
-        udpcore_bus_errors <= 32'd0;
-        ethphy_reset_storage <= 1'd0;
-        ethphy_reset_re <= 1'd0;
-        ethphy_re <= 1'd0;
-        ethphy__w_storage <= 3'd0;
-        ethphy__w_re <= 1'd0;
-        ethphy__r_re <= 1'd0;
-        core_mac_core_tx_cdc_cdc_graycounter0_q <= 6'd0;
-        core_mac_core_tx_cdc_cdc_graycounter0_q_binary <= 6'd0;
+        udpcore_udpcore_reset_storage <= 2'd0;
+        udpcore_udpcore_reset_re <= 1'd0;
+        udpcore_udpcore_scratch_storage <= 32'd305419896;
+        udpcore_udpcore_scratch_re <= 1'd0;
+        udpcore_udpcore_bus_errors_re <= 1'd0;
+        udpcore_udpcore_bus_errors <= 32'd0;
+        udpcore_ethphy_reset_storage <= 1'd0;
+        udpcore_ethphy_reset_re <= 1'd0;
+        udpcore_ethphy_re <= 1'd0;
+        udpcore_ethphy__w_storage <= 3'd0;
+        udpcore_ethphy__w_re <= 1'd0;
+        udpcore_ethphy__r_re <= 1'd0;
+        core_mac_core_txdatapath_cdc_graycounter0_q <= 6'd0;
+        core_mac_core_txdatapath_cdc_graycounter0_q_binary <= 6'd0;
         core_mac_core_preamble_errors_status <= 32'd0;
         core_mac_core_crc_errors_status <= 32'd0;
         core_mac_core_cdc_graycounter1_q <= 6'd0;
@@ -6897,11 +7192,19 @@ always @(posedge sys_clk) begin
         core_arp_rx_depacketizer_fsm_from_idle <= 1'd0;
         core_arp_rx_depacketizer_delayed_last_be <= 1'd0;
         core_arp_rx_depacketizer_was_in_copy <= 1'd0;
+        core_arp_table_response_response_payload_failed <= 1'd0;
+        core_arp_table_response_response_payload_mac_address <= 48'd0;
         core_arp_table_request_pending <= 1'd0;
-        core_arp_table_request_timer_count <= 24'd12500000;
         core_arp_table_request_counter <= 3'd0;
-        core_arp_table_cached_valid <= 1'd0;
-        core_arp_table_cached_timer_count <= 31'd1250000000;
+        core_arp_table_request_timer_count <= 24'd12500000;
+        core_arp_table_cache_update_count <= 1'd0;
+        core_arp_table_cache_search_count <= 1'd0;
+        core_arp_table_cache_error <= 1'd0;
+        core_arp_table_cache_count <= 27'd125000000;
+        core_ip_tx_pipe_valid_source_valid <= 1'd0;
+        core_ip_tx_pipe_valid_source_payload_data <= 8'd0;
+        core_ip_tx_pipe_valid_source_payload_last_be <= 1'd0;
+        core_ip_tx_pipe_valid_source_payload_error <= 1'd0;
         core_ip_tx_liteethipv4checksum_counter <= 4'd0;
         core_ip_tx_packetizer_count <= 5'd0;
         core_ip_tx_packetizer_fsm_from_idle <= 1'd0;
@@ -6934,67 +7237,76 @@ always @(posedge sys_clk) begin
         core_rx_depacketizer_delayed_last_be <= 1'd0;
         core_rx_depacketizer_was_in_copy <= 1'd0;
         core_rx_count <= 16'd0;
-        udp_streamer_tx_level <= 7'd0;
-        udp_streamer_tx_counter <= 7'd0;
-        udp_streamer_tx_fifo_readable <= 1'd0;
-        udp_streamer_tx_fifo_level0 <= 7'd0;
-        udp_streamer_tx_fifo_produce <= 6'd0;
-        udp_streamer_tx_fifo_consume <= 6'd0;
-        udp_streamer_rx_fifo_readable <= 1'd0;
-        udp_streamer_rx_fifo_level0 <= 7'd0;
-        udp_streamer_rx_fifo_produce <= 6'd0;
-        udp_streamer_rx_fifo_consume <= 6'd0;
-        udpcore_liteethmac_grant <= 1'd0;
-        udpcore_liteethmac_status0_first <= 1'd1;
-        udpcore_liteethmac_status0_ongoing1 <= 1'd0;
-        udpcore_liteethmac_status1_first <= 1'd1;
-        udpcore_liteethmac_status1_ongoing1 <= 1'd0;
-        udpcore_liteethmac_first <= 1'd1;
-        udpcore_liteethmac_ongoing1 <= 1'd0;
-        udpcore_liteethmac_sel_ongoing <= 2'd0;
-        udpcore_liteethmac_fsm0_state0 <= 2'd0;
-        udpcore_liteethmac_fsm1_state0 <= 1'd0;
-        udpcore_liteethmac_fsm0_state1 <= 2'd0;
-        udpcore_liteethmac_fsm1_state1 <= 1'd0;
-        udpcore_liteetharptx_fsm0_state <= 2'd0;
-        udpcore_liteetharptx_fsm1_state <= 1'd0;
-        udpcore_liteetharptx_state <= 1'd0;
-        udpcore_liteetharprx_fsm0_state <= 2'd0;
-        udpcore_liteetharprx_fsm1_state <= 1'd0;
-        udpcore_liteetharprx_state <= 2'd0;
-        udpcore_liteetharptable_state <= 3'd0;
-        udpcore_liteethip_liteethiptx_fsm0_state <= 2'd0;
-        udpcore_liteethip_liteethiptx_fsm1_state <= 1'd0;
-        udpcore_liteethip_liteethiptx_state <= 3'd0;
-        udpcore_liteethip_liteethiprx_fsm0_state <= 2'd0;
-        udpcore_liteethip_liteethiprx_fsm1_state <= 1'd0;
-        udpcore_liteethip_liteethiprx_state <= 2'd0;
-        udpcore_liteethip_grant <= 1'd0;
-        udpcore_liteethip_status0_first <= 1'd1;
-        udpcore_liteethip_status0_ongoing1 <= 1'd0;
-        udpcore_liteethip_status1_first <= 1'd1;
-        udpcore_liteethip_status1_ongoing1 <= 1'd0;
-        udpcore_liteethip_first <= 1'd1;
-        udpcore_liteethip_ongoing1 <= 1'd0;
-        udpcore_liteethip_sel_ongoing <= 2'd0;
-        udpcore_liteethicmptx_fsm0_state <= 2'd0;
-        udpcore_liteethicmptx_fsm1_state <= 1'd0;
-        udpcore_liteethicmptx_state <= 1'd0;
-        udpcore_liteethicmprx_fsm0_state <= 2'd0;
-        udpcore_liteethicmprx_fsm1_state <= 1'd0;
-        udpcore_liteethicmprx_state <= 2'd0;
-        udpcore_liteethudp_liteethudptx_fsm0_state <= 2'd0;
-        udpcore_liteethudp_liteethudptx_fsm1_state <= 1'd0;
-        udpcore_liteethudp_liteethudptx_state <= 1'd0;
-        udpcore_liteethudp_liteethudprx_fsm0_state <= 2'd0;
-        udpcore_liteethudp_liteethudprx_fsm1_state <= 1'd0;
-        udpcore_liteethudp_liteethudprx_state <= 2'd0;
-        udpcore_liteethudpstreamer_state <= 1'd0;
-        udpcore_wishbone2csr_state <= 1'd0;
+        udpcore_tx_level <= 7'd0;
+        udpcore_tx_counter <= 7'd0;
+        udpcore_tx_ip_address1 <= 32'd0;
+        udpcore_tx_udp_port1 <= 16'd0;
+        udpcore_tx_fifo_readable <= 1'd0;
+        udpcore_tx_fifo_level0 <= 7'd0;
+        udpcore_tx_fifo_produce <= 6'd0;
+        udpcore_tx_fifo_consume <= 6'd0;
+        udpcore_rx_fifo_readable <= 1'd0;
+        udpcore_rx_fifo_level0 <= 7'd0;
+        udpcore_rx_fifo_produce <= 6'd0;
+        udpcore_rx_fifo_consume <= 6'd0;
+        liteethmac_grant <= 1'd0;
+        liteethmac_status0_first <= 1'd1;
+        liteethmac_status0_ongoing1 <= 1'd0;
+        liteethmac_status1_first <= 1'd1;
+        liteethmac_status1_ongoing1 <= 1'd0;
+        liteethmac_first <= 1'd1;
+        liteethmac_ongoing1 <= 1'd0;
+        liteethmac_sel_ongoing <= 2'd0;
+        liteethmac_sel_locked <= 1'd0;
+        liteethmac_fsm0_state0 <= 2'd0;
+        liteethmac_fsm1_state0 <= 1'd0;
+        liteethmac_fsm0_state1 <= 2'd0;
+        liteethmac_fsm1_state1 <= 1'd0;
+        liteetharptx_fsm0_state <= 2'd0;
+        liteetharptx_fsm1_state <= 1'd0;
+        liteetharptx_state <= 1'd0;
+        liteetharprx_fsm0_state <= 2'd0;
+        liteetharprx_fsm1_state <= 1'd0;
+        liteetharprx_state <= 2'd0;
+        liteetharpcache_state <= 3'd0;
+        fsm_state <= 3'd0;
+        liteethip_liteethiptx_fsm0_state <= 2'd0;
+        liteethip_liteethiptx_fsm1_state <= 1'd0;
+        liteethip_liteethiptx_state <= 3'd0;
+        liteethip_liteethiprx_fsm0_state <= 2'd0;
+        liteethip_liteethiprx_fsm1_state <= 1'd0;
+        liteethip_liteethiprx_state <= 2'd0;
+        liteethip_grant <= 1'd0;
+        liteethip_status0_first <= 1'd1;
+        liteethip_status0_ongoing1 <= 1'd0;
+        liteethip_status1_first <= 1'd1;
+        liteethip_status1_ongoing1 <= 1'd0;
+        liteethip_first <= 1'd1;
+        liteethip_ongoing1 <= 1'd0;
+        liteethip_sel_ongoing <= 2'd0;
+        liteethip_sel_locked <= 1'd0;
+        liteethicmptx_fsm0_state <= 2'd0;
+        liteethicmptx_fsm1_state <= 1'd0;
+        liteethicmptx_state <= 1'd0;
+        liteethicmprx_fsm0_state <= 2'd0;
+        liteethicmprx_fsm1_state <= 1'd0;
+        liteethicmprx_state <= 2'd0;
+        liteethudp_liteethudptx_fsm0_state <= 2'd0;
+        liteethudp_liteethudptx_fsm1_state <= 1'd0;
+        liteethudp_liteethudptx_state <= 1'd0;
+        liteethudp_liteethudprx_fsm0_state <= 2'd0;
+        liteethudp_liteethudprx_fsm1_state <= 1'd0;
+        liteethudp_liteethudprx_state <= 2'd0;
+        liteethudp_first <= 1'd1;
+        liteethudp_ongoing1 <= 1'd0;
+        liteethudp_sel_ongoing <= 1'd0;
+        liteethudp_sel_locked <= 1'd0;
+        liteethudpstreamer_state <= 1'd0;
+        wishbone2csr_state <= 1'd0;
     end
-    multiregimpl0_regs0 <= ethphy_data_r;
+    multiregimpl0_regs0 <= udpcore_ethphy_data_r;
     multiregimpl0_regs1 <= multiregimpl0_regs0;
-    multiregimpl2_regs0 <= core_mac_core_tx_cdc_cdc_graycounter1_q;
+    multiregimpl2_regs0 <= core_mac_core_txdatapath_cdc_graycounter1_q;
     multiregimpl2_regs1 <= multiregimpl2_regs0;
     multiregimpl3_regs0 <= core_mac_core_pulsesynchronizer0_toggle_i;
     multiregimpl3_regs1 <= multiregimpl3_regs0;
@@ -7009,121 +7321,195 @@ end
 // Specialized Logic
 //------------------------------------------------------------------------------
 
+//------------------------------------------------------------------------------
+// Instance DELAYG of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(1'd0)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (1'd0)
 ) DELAYG (
-	.A(ethphy_eth_tx_clk_o),
-	.Z(rgmii_eth_clocks_tx)
+	// Inputs.
+	.A (udpcore_ethphy_eth_tx_clk_o),
+
+	// Outputs.
+	.Z (rgmii_clocks_tx)
 );
 
+//------------------------------------------------------------------------------
+// Instance DELAYG_1 of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(1'd0)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (1'd0)
 ) DELAYG_1 (
-	.A(ethphy_tx_ctl_oddrx1f),
-	.Z(rgmii_eth_tx_ctl)
+	// Inputs.
+	.A (udpcore_ethphy_tx_ctl_oddrx1f),
+
+	// Outputs.
+	.Z (rgmii_tx_ctl)
 );
 
+//------------------------------------------------------------------------------
+// Instance DELAYG_2 of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(1'd0)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (1'd0)
 ) DELAYG_2 (
-	.A(ethphy_tx_data_oddrx1f[0]),
-	.Z(rgmii_eth_tx_data[0])
+	// Inputs.
+	.A (udpcore_ethphy_tx_data_oddrx1f[0]),
+
+	// Outputs.
+	.Z (rgmii_tx_data[0])
 );
 
+//------------------------------------------------------------------------------
+// Instance DELAYG_3 of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(1'd0)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (1'd0)
 ) DELAYG_3 (
-	.A(ethphy_tx_data_oddrx1f[1]),
-	.Z(rgmii_eth_tx_data[1])
+	// Inputs.
+	.A (udpcore_ethphy_tx_data_oddrx1f[1]),
+
+	// Outputs.
+	.Z (rgmii_tx_data[1])
 );
 
+//------------------------------------------------------------------------------
+// Instance DELAYG_4 of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(1'd0)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (1'd0)
 ) DELAYG_4 (
-	.A(ethphy_tx_data_oddrx1f[2]),
-	.Z(rgmii_eth_tx_data[2])
+	// Inputs.
+	.A (udpcore_ethphy_tx_data_oddrx1f[2]),
+
+	// Outputs.
+	.Z (rgmii_tx_data[2])
 );
 
+//------------------------------------------------------------------------------
+// Instance DELAYG_5 of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(1'd0)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (1'd0)
 ) DELAYG_5 (
-	.A(ethphy_tx_data_oddrx1f[3]),
-	.Z(rgmii_eth_tx_data[3])
+	// Inputs.
+	.A (udpcore_ethphy_tx_data_oddrx1f[3]),
+
+	// Outputs.
+	.Z (rgmii_tx_data[3])
 );
 
+//------------------------------------------------------------------------------
+// Instance DELAYG_6 of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(7'd80)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (7'd80)
 ) DELAYG_6 (
-	.A(rgmii_eth_rx_ctl),
-	.Z(ethphy_rx_ctl_delayf)
+	// Inputs.
+	.A (rgmii_rx_ctl),
+
+	// Outputs.
+	.Z (udpcore_ethphy_rx_ctl_delayf)
 );
 
+//------------------------------------------------------------------------------
+// Instance DELAYG_7 of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(7'd80)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (7'd80)
 ) DELAYG_7 (
-	.A(rgmii_eth_rx_data[0]),
-	.Z(ethphy_rx_data_delayf[0])
+	// Inputs.
+	.A (rgmii_rx_data[0]),
+
+	// Outputs.
+	.Z (udpcore_ethphy_rx_data_delayf[0])
 );
 
+//------------------------------------------------------------------------------
+// Instance DELAYG_8 of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(7'd80)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (7'd80)
 ) DELAYG_8 (
-	.A(rgmii_eth_rx_data[1]),
-	.Z(ethphy_rx_data_delayf[1])
+	// Inputs.
+	.A (rgmii_rx_data[1]),
+
+	// Outputs.
+	.Z (udpcore_ethphy_rx_data_delayf[1])
 );
 
+//------------------------------------------------------------------------------
+// Instance DELAYG_9 of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(7'd80)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (7'd80)
 ) DELAYG_9 (
-	.A(rgmii_eth_rx_data[2]),
-	.Z(ethphy_rx_data_delayf[2])
+	// Inputs.
+	.A (rgmii_rx_data[2]),
+
+	// Outputs.
+	.Z (udpcore_ethphy_rx_data_delayf[2])
 );
 
+//------------------------------------------------------------------------------
+// Instance DELAYG_10 of DELAYG Module.
+//------------------------------------------------------------------------------
 DELAYG #(
-	.DEL_MODE("SCLK_ALIGNED"),
-	.DEL_VALUE(7'd80)
+	// Parameters.
+	.DEL_MODE  ("SCLK_ALIGNED"),
+	.DEL_VALUE (7'd80)
 ) DELAYG_10 (
-	.A(rgmii_eth_rx_data[3]),
-	.Z(ethphy_rx_data_delayf[3])
-);
+	// Inputs.
+	.A (rgmii_rx_data[3]),
 
-assign rgmii_eth_mdio = ethphy_data_oe ? ethphy_data_w : 1'bz;
-assign ethphy_data_r = rgmii_eth_mdio;
+	// Outputs.
+	.Z (udpcore_ethphy_rx_data_delayf[3])
+);
 
 //------------------------------------------------------------------------------
 // Memory storage: 32-words x 12-bit
 //------------------------------------------------------------------------------
-// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First  | Write-Granularity: 12 
+// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First 
 // Port 1 | Read: Sync  | Write: ---- | 
 reg [11:0] storage[0:31];
 reg [11:0] storage_dat0;
 reg [11:0] storage_dat1;
 always @(posedge sys_clk) begin
-	if (core_mac_core_tx_cdc_cdc_wrport_we)
-		storage[core_mac_core_tx_cdc_cdc_wrport_adr] <= core_mac_core_tx_cdc_cdc_wrport_dat_w;
-	storage_dat0 <= storage[core_mac_core_tx_cdc_cdc_wrport_adr];
+	if (core_mac_core_txdatapath_cdc_wrport_we)
+		storage[core_mac_core_txdatapath_cdc_wrport_adr] <= core_mac_core_txdatapath_cdc_wrport_dat_w;
+	storage_dat0 <= storage[core_mac_core_txdatapath_cdc_wrport_adr];
 end
 always @(posedge eth_tx_clk) begin
-	storage_dat1 <= storage[core_mac_core_tx_cdc_cdc_rdport_adr];
+	storage_dat1 <= storage[core_mac_core_txdatapath_cdc_rdport_adr];
 end
-assign core_mac_core_tx_cdc_cdc_wrport_dat_r = storage_dat0;
-assign core_mac_core_tx_cdc_cdc_rdport_dat_r = storage_dat1;
+assign core_mac_core_txdatapath_cdc_wrport_dat_r = storage_dat0;
+assign core_mac_core_txdatapath_cdc_rdport_dat_r = storage_dat1;
 
 
 //------------------------------------------------------------------------------
 // Memory storage_1: 5-words x 12-bit
 //------------------------------------------------------------------------------
-// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First  | Write-Granularity: 12 
+// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First 
 // Port 1 | Read: Async | Write: ---- | 
 reg [11:0] storage_1[0:4];
 reg [11:0] storage_1_dat0;
@@ -7141,7 +7527,7 @@ assign core_mac_core_liteethmaccrc32checker_syncfifo_rdport_dat_r = storage_1[co
 //------------------------------------------------------------------------------
 // Memory storage_2: 32-words x 12-bit
 //------------------------------------------------------------------------------
-// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First  | Write-Granularity: 12 
+// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First 
 // Port 1 | Read: Sync  | Write: ---- | 
 reg [11:0] storage_2[0:31];
 reg [11:0] storage_2_dat0;
@@ -7159,9 +7545,27 @@ assign core_mac_core_cdc_rdport_dat_r = storage_2_dat1;
 
 
 //------------------------------------------------------------------------------
+// Memory mem: 2-words x 81-bit
+//------------------------------------------------------------------------------
+// Port 0 | Read: Sync  | Write: Sync | Mode: Write-First
+// Port 1 | Read: Async | Write: ---- | 
+reg [80:0] mem[0:1];
+reg [0:0] mem_adr0;
+always @(posedge sys_clk) begin
+	if (core_arp_table_cache_mem_wr_port_we)
+		mem[core_arp_table_cache_mem_wr_port_adr] <= core_arp_table_cache_mem_wr_port_dat_w;
+	mem_adr0 <= core_arp_table_cache_mem_wr_port_adr;
+end
+always @(posedge sys_clk) begin
+end
+assign core_arp_table_cache_mem_wr_port_dat_r = mem[mem_adr0];
+assign core_arp_table_cache_mem_rd_port_dat_r = mem[core_arp_table_cache_mem_rd_port_adr];
+
+
+//------------------------------------------------------------------------------
 // Memory storage_3: 128-words x 12-bit
 //------------------------------------------------------------------------------
-// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First  | Write-Granularity: 12 
+// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First 
 // Port 1 | Read: Sync  | Write: ---- | 
 reg [11:0] storage_3[0:127];
 reg [11:0] storage_3_dat0;
@@ -7182,7 +7586,7 @@ assign core_icmp_echo_payload_fifo_rdport_dat_r = storage_3_dat1;
 //------------------------------------------------------------------------------
 // Memory storage_4: 2-words x 114-bit
 //------------------------------------------------------------------------------
-// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First  | Write-Granularity: 114 
+// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First 
 // Port 1 | Read: Sync  | Write: ---- | 
 reg [113:0] storage_4[0:1];
 reg [113:0] storage_4_dat0;
@@ -7203,152 +7607,257 @@ assign core_icmp_echo_param_fifo_rdport_dat_r = storage_4_dat1;
 //------------------------------------------------------------------------------
 // Memory storage_5: 64-words x 10-bit
 //------------------------------------------------------------------------------
-// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First  | Write-Granularity: 10 
+// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First 
 // Port 1 | Read: Sync  | Write: ---- | 
 reg [9:0] storage_5[0:63];
 reg [9:0] storage_5_dat0;
 reg [9:0] storage_5_dat1;
 always @(posedge sys_clk) begin
-	if (udp_streamer_tx_fifo_wrport_we)
-		storage_5[udp_streamer_tx_fifo_wrport_adr] <= udp_streamer_tx_fifo_wrport_dat_w;
-	storage_5_dat0 <= storage_5[udp_streamer_tx_fifo_wrport_adr];
+	if (udpcore_tx_fifo_wrport_we)
+		storage_5[udpcore_tx_fifo_wrport_adr] <= udpcore_tx_fifo_wrport_dat_w;
+	storage_5_dat0 <= storage_5[udpcore_tx_fifo_wrport_adr];
 end
 always @(posedge sys_clk) begin
-	if (udp_streamer_tx_fifo_rdport_re)
-		storage_5_dat1 <= storage_5[udp_streamer_tx_fifo_rdport_adr];
+	if (udpcore_tx_fifo_rdport_re)
+		storage_5_dat1 <= storage_5[udpcore_tx_fifo_rdport_adr];
 end
-assign udp_streamer_tx_fifo_wrport_dat_r = storage_5_dat0;
-assign udp_streamer_tx_fifo_rdport_dat_r = storage_5_dat1;
+assign udpcore_tx_fifo_wrport_dat_r = storage_5_dat0;
+assign udpcore_tx_fifo_rdport_dat_r = storage_5_dat1;
 
 
 //------------------------------------------------------------------------------
 // Memory storage_6: 64-words x 11-bit
 //------------------------------------------------------------------------------
-// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First  | Write-Granularity: 11 
+// Port 0 | Read: Sync  | Write: Sync | Mode: Read-First 
 // Port 1 | Read: Sync  | Write: ---- | 
 reg [10:0] storage_6[0:63];
 reg [10:0] storage_6_dat0;
 reg [10:0] storage_6_dat1;
 always @(posedge sys_clk) begin
-	if (udp_streamer_rx_fifo_wrport_we)
-		storage_6[udp_streamer_rx_fifo_wrport_adr] <= udp_streamer_rx_fifo_wrport_dat_w;
-	storage_6_dat0 <= storage_6[udp_streamer_rx_fifo_wrport_adr];
+	if (udpcore_rx_fifo_wrport_we)
+		storage_6[udpcore_rx_fifo_wrport_adr] <= udpcore_rx_fifo_wrport_dat_w;
+	storage_6_dat0 <= storage_6[udpcore_rx_fifo_wrport_adr];
 end
 always @(posedge sys_clk) begin
-	if (udp_streamer_rx_fifo_rdport_re)
-		storage_6_dat1 <= storage_6[udp_streamer_rx_fifo_rdport_adr];
+	if (udpcore_rx_fifo_rdport_re)
+		storage_6_dat1 <= storage_6[udpcore_rx_fifo_rdport_adr];
 end
-assign udp_streamer_rx_fifo_wrport_dat_r = storage_6_dat0;
-assign udp_streamer_rx_fifo_rdport_dat_r = storage_6_dat1;
+assign udpcore_rx_fifo_wrport_dat_r = storage_6_dat0;
+assign udpcore_rx_fifo_rdport_dat_r = storage_6_dat1;
 
 
+//------------------------------------------------------------------------------
+// Instance ODDRX1F of ODDRX1F Module.
+//------------------------------------------------------------------------------
 ODDRX1F ODDRX1F(
-	.D0(1'd1),
-	.D1(1'd0),
-	.SCLK(eth_tx_clk),
-	.Q(ethphy_eth_tx_clk_o)
+	// Inputs.
+	.D0   (1'd1),
+	.D1   (1'd0),
+	.SCLK (eth_tx_clk),
+
+	// Outputs.
+	.Q    (udpcore_ethphy_eth_tx_clk_o)
 );
 
+//------------------------------------------------------------------------------
+// Instance FD1S3BX of FD1S3BX Module.
+//------------------------------------------------------------------------------
 FD1S3BX FD1S3BX(
-	.CK(eth_tx_clk),
-	.D(1'd0),
-	.PD(ethphy_reset),
-	.Q(rst10)
+	// Inputs.
+	.CK (eth_tx_clk),
+	.D  (1'd0),
+	.PD (udpcore_ethphy_reset),
+
+	// Outputs.
+	.Q  (rst10)
 );
 
+//------------------------------------------------------------------------------
+// Instance FD1S3BX_1 of FD1S3BX Module.
+//------------------------------------------------------------------------------
 FD1S3BX FD1S3BX_1(
-	.CK(eth_tx_clk),
-	.D(rst10),
-	.PD(ethphy_reset),
-	.Q(eth_tx_rst)
+	// Inputs.
+	.CK (eth_tx_clk),
+	.D  (rst10),
+	.PD (udpcore_ethphy_reset),
+
+	// Outputs.
+	.Q  (eth_tx_rst)
 );
 
+//------------------------------------------------------------------------------
+// Instance FD1S3BX_2 of FD1S3BX Module.
+//------------------------------------------------------------------------------
 FD1S3BX FD1S3BX_2(
-	.CK(eth_rx_clk),
-	.D(1'd0),
-	.PD(ethphy_reset),
-	.Q(rst11)
+	// Inputs.
+	.CK (eth_rx_clk),
+	.D  (1'd0),
+	.PD (udpcore_ethphy_reset),
+
+	// Outputs.
+	.Q  (rst11)
 );
 
+//------------------------------------------------------------------------------
+// Instance FD1S3BX_3 of FD1S3BX Module.
+//------------------------------------------------------------------------------
 FD1S3BX FD1S3BX_3(
-	.CK(eth_rx_clk),
-	.D(rst11),
-	.PD(ethphy_reset),
-	.Q(eth_rx_rst)
+	// Inputs.
+	.CK (eth_rx_clk),
+	.D  (rst11),
+	.PD (udpcore_ethphy_reset),
+
+	// Outputs.
+	.Q  (eth_rx_rst)
 );
 
+//------------------------------------------------------------------------------
+// Instance ODDRX1F_1 of ODDRX1F Module.
+//------------------------------------------------------------------------------
 ODDRX1F ODDRX1F_1(
-	.D0(ethphy_sink_valid),
-	.D1(ethphy_sink_valid),
-	.SCLK(eth_tx_clk),
-	.Q(ethphy_tx_ctl_oddrx1f)
+	// Inputs.
+	.D0   (udpcore_ethphy_sink_valid),
+	.D1   (udpcore_ethphy_sink_valid),
+	.SCLK (eth_tx_clk),
+
+	// Outputs.
+	.Q    (udpcore_ethphy_tx_ctl_oddrx1f)
 );
 
+//------------------------------------------------------------------------------
+// Instance ODDRX1F_2 of ODDRX1F Module.
+//------------------------------------------------------------------------------
 ODDRX1F ODDRX1F_2(
-	.D0(ethphy_sink_payload_data[0]),
-	.D1(ethphy_sink_payload_data[4]),
-	.SCLK(eth_tx_clk),
-	.Q(ethphy_tx_data_oddrx1f[0])
+	// Inputs.
+	.D0   (udpcore_ethphy_sink_payload_data[0]),
+	.D1   (udpcore_ethphy_sink_payload_data[4]),
+	.SCLK (eth_tx_clk),
+
+	// Outputs.
+	.Q    (udpcore_ethphy_tx_data_oddrx1f[0])
 );
 
+//------------------------------------------------------------------------------
+// Instance ODDRX1F_3 of ODDRX1F Module.
+//------------------------------------------------------------------------------
 ODDRX1F ODDRX1F_3(
-	.D0(ethphy_sink_payload_data[1]),
-	.D1(ethphy_sink_payload_data[5]),
-	.SCLK(eth_tx_clk),
-	.Q(ethphy_tx_data_oddrx1f[1])
+	// Inputs.
+	.D0   (udpcore_ethphy_sink_payload_data[1]),
+	.D1   (udpcore_ethphy_sink_payload_data[5]),
+	.SCLK (eth_tx_clk),
+
+	// Outputs.
+	.Q    (udpcore_ethphy_tx_data_oddrx1f[1])
 );
 
+//------------------------------------------------------------------------------
+// Instance ODDRX1F_4 of ODDRX1F Module.
+//------------------------------------------------------------------------------
 ODDRX1F ODDRX1F_4(
-	.D0(ethphy_sink_payload_data[2]),
-	.D1(ethphy_sink_payload_data[6]),
-	.SCLK(eth_tx_clk),
-	.Q(ethphy_tx_data_oddrx1f[2])
+	// Inputs.
+	.D0   (udpcore_ethphy_sink_payload_data[2]),
+	.D1   (udpcore_ethphy_sink_payload_data[6]),
+	.SCLK (eth_tx_clk),
+
+	// Outputs.
+	.Q    (udpcore_ethphy_tx_data_oddrx1f[2])
 );
 
+//------------------------------------------------------------------------------
+// Instance ODDRX1F_5 of ODDRX1F Module.
+//------------------------------------------------------------------------------
 ODDRX1F ODDRX1F_5(
-	.D0(ethphy_sink_payload_data[3]),
-	.D1(ethphy_sink_payload_data[7]),
-	.SCLK(eth_tx_clk),
-	.Q(ethphy_tx_data_oddrx1f[3])
+	// Inputs.
+	.D0   (udpcore_ethphy_sink_payload_data[3]),
+	.D1   (udpcore_ethphy_sink_payload_data[7]),
+	.SCLK (eth_tx_clk),
+
+	// Outputs.
+	.Q    (udpcore_ethphy_tx_data_oddrx1f[3])
 );
 
+//------------------------------------------------------------------------------
+// Instance IDDRX1F of IDDRX1F Module.
+//------------------------------------------------------------------------------
 IDDRX1F IDDRX1F(
-	.D(ethphy_rx_ctl_delayf),
-	.SCLK(eth_rx_clk),
-	.Q0(ethphy_rx_ctl[0]),
-	.Q1(ethphy_rx_ctl[1])
+	// Inputs.
+	.D    (udpcore_ethphy_rx_ctl_delayf),
+	.SCLK (eth_rx_clk),
+
+	// Outputs.
+	.Q0   (udpcore_ethphy_rx_ctl[0]),
+	.Q1   (udpcore_ethphy_rx_ctl[1])
 );
 
+//------------------------------------------------------------------------------
+// Instance IDDRX1F_1 of IDDRX1F Module.
+//------------------------------------------------------------------------------
 IDDRX1F IDDRX1F_1(
-	.D(ethphy_rx_data_delayf[0]),
-	.SCLK(eth_rx_clk),
-	.Q0(ethphy_rx_data[0]),
-	.Q1(ethphy_rx_data[4])
+	// Inputs.
+	.D    (udpcore_ethphy_rx_data_delayf[0]),
+	.SCLK (eth_rx_clk),
+
+	// Outputs.
+	.Q0   (udpcore_ethphy_rx_data[0]),
+	.Q1   (udpcore_ethphy_rx_data[4])
 );
 
+//------------------------------------------------------------------------------
+// Instance IDDRX1F_2 of IDDRX1F Module.
+//------------------------------------------------------------------------------
 IDDRX1F IDDRX1F_2(
-	.D(ethphy_rx_data_delayf[1]),
-	.SCLK(eth_rx_clk),
-	.Q0(ethphy_rx_data[1]),
-	.Q1(ethphy_rx_data[5])
+	// Inputs.
+	.D    (udpcore_ethphy_rx_data_delayf[1]),
+	.SCLK (eth_rx_clk),
+
+	// Outputs.
+	.Q0   (udpcore_ethphy_rx_data[1]),
+	.Q1   (udpcore_ethphy_rx_data[5])
 );
 
+//------------------------------------------------------------------------------
+// Instance IDDRX1F_3 of IDDRX1F Module.
+//------------------------------------------------------------------------------
 IDDRX1F IDDRX1F_3(
-	.D(ethphy_rx_data_delayf[2]),
-	.SCLK(eth_rx_clk),
-	.Q0(ethphy_rx_data[2]),
-	.Q1(ethphy_rx_data[6])
+	// Inputs.
+	.D    (udpcore_ethphy_rx_data_delayf[2]),
+	.SCLK (eth_rx_clk),
+
+	// Outputs.
+	.Q0   (udpcore_ethphy_rx_data[2]),
+	.Q1   (udpcore_ethphy_rx_data[6])
 );
 
+//------------------------------------------------------------------------------
+// Instance IDDRX1F_4 of IDDRX1F Module.
+//------------------------------------------------------------------------------
 IDDRX1F IDDRX1F_4(
-	.D(ethphy_rx_data_delayf[3]),
-	.SCLK(eth_rx_clk),
-	.Q0(ethphy_rx_data[3]),
-	.Q1(ethphy_rx_data[7])
+	// Inputs.
+	.D    (udpcore_ethphy_rx_data_delayf[3]),
+	.SCLK (eth_rx_clk),
+
+	// Outputs.
+	.Q0   (udpcore_ethphy_rx_data[3]),
+	.Q1   (udpcore_ethphy_rx_data[7])
+);
+
+//------------------------------------------------------------------------------
+// Instance BB of BB Module.
+//------------------------------------------------------------------------------
+BB BB(
+	// Inputs.
+	.I (udpcore_ethphy_data_w),
+	.T ((~udpcore_ethphy_data_oe)),
+
+	// Outputs.
+	.O (udpcore_ethphy_data_r),
+
+	// InOuts.
+	.B (rgmii_mdio)
 );
 
 endmodule
 
 // -----------------------------------------------------------------------------
-//  Auto-Generated by LiteX on 2023-01-21 21:44:02.
+//  Auto-Generated by LiteX on 2026-05-30 13:07:48.
 //------------------------------------------------------------------------------
