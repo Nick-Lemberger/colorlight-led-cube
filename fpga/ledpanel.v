@@ -33,7 +33,7 @@ module ledpanel (
 	localparam integer WIDTH                = 64;
 	localparam integer RGB1_OFFSET			= 32; // height offset between RGB0 and RGB1 lines
 
-	localparam integer COLOR_DEPTH          = 7; // bits of color after gamma correction
+	localparam integer COLOR_DEPTH          = 6; // bits of color after gamma correction
 
 	localparam integer BITS_RED             = 8;
 	localparam integer BITS_GREEN           = 8;
@@ -63,9 +63,9 @@ module ledpanel (
 		 * Gamma correction tables specific to selected bit depths.
 		 * Needs to map BITS_{REG,GREEN,BLUE} to COLOR_DEPTH bits
 		 */
-		$readmemh("gamma_8_to_7.mem",gamma_mem_red);
-		$readmemh("gamma_8_to_7.mem",gamma_mem_green);
-		$readmemh("gamma_8_to_7.mem",gamma_mem_blue);
+		$readmemh("gamma_8_to_6.mem",gamma_mem_red);
+		$readmemh("gamma_8_to_6.mem",gamma_mem_green);
+		$readmemh("gamma_8_to_6.mem",gamma_mem_blue);
 
 		/*
 		 * Initial data for video memory. Non gamma-corrected,

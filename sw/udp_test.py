@@ -1,6 +1,9 @@
 #!/bin/python3.7
 import socket
 import numpy as np
+import math
+
+pi = math.pi
 
 UDP_IP = '192.168.178.50'
 UDP_PORT = 2000
@@ -23,17 +26,25 @@ b = np.uint8(30)
 panel = np.uint8(0)
 addr = np.uint8(0)
 
-#while(1):
-for y in range(int(num_rows)):
-    for x in range(num_cols):
-        panel = 1
-        r = x*4*0
-        g = x*4*0
-        b = x*4
-        dbuf[x] = [b,g,r]
-    packet = bytes([panel, y]) + dbuf.tobytes() # Header + data payload
-    #print(packet)
-    s.sendto(packet, (UDP_IP, UDP_PORT))
+i = 0
+while(1):
+    for y in range(int(num_rows)):
+        for x in range(num_cols):
+            panel = 1
+            #g = (255-x*4) * (1-y/63) 
+            #b = x*4 * (1-y/63) 
+            #r = y*4 * (1-x/63)
+            
+            phase = i/128*pi
+            b = 255 * (0.5+math.cos(x/64*pi+phase)/2)**1.0
+            r = 255 * (0.5+math.cos(x/64*pi+phase+2*pi/3)/2)**1.0
+            g = 255 * (0.5+math.cos(x/64*pi+phase+2*pi*2/3)/2)**1.0
+            
+            dbuf[x] = [b,g,r]
+        packet = bytes([panel, y]) + dbuf.tobytes() # Header + data payload
+        #print(packet)
+        s.sendto(packet, (UDP_IP, UDP_PORT))
+    i = i+1
 exit()
 
 
