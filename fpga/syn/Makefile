@@ -7,7 +7,7 @@ SOURCE :=../liteeth_core.v \
 
 YOSYS_SCRIPT:=syn.ys
 
-all : top.svf
+all : top.bit
 
 ../pll.v :
 	ecppll -i 25 --clkout0_name clock --clkout0 125 --clkout1_name panel_clock --clkout1 125 -f ../pll.v
@@ -24,19 +24,20 @@ top.config : top.json
 top.bit : top.config
 	ecppack top.config top.bit
 
-top.svf : top.bit
-	./bit_to_svf.py top.bit top.svf
+#top.svf : top.bit
+#	./bit_to_svf.py top.bit top.svf
 
-flash.svf : top.bit
-	./bit_to_flash.py top.bit flash.svf
+#flash.svf : top.bit
+#	./bit_to_flash.py top.bit flash.svf
 
 
 prog : top.bit
 	#openocd -f openocd.cfg -c "transport select jtag; init; scan_chain; svf top.svf; shutdown; quit"
 	openFPGALoader -c dirtyJtag top.bit 
 
-#flash : flash.bit
+flash : top.bit
 #	openocd -f openocd.cfg -c "transport select jtag; init; scan_chain; svf flash.svf; shutdown; quit"
+	openFPGALoader -c dirtyJtag --unprotect-flash -v -f top.bit
 
 clean:
 	rm -f ../liteeth_core.*
@@ -45,5 +46,3 @@ clean:
 	rm -f top.config
 	rm -f top-post-route.json
 	rm -f top.bit
-	rm -f top.svf
-	rm -f flash.svf
